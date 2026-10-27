@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { API_URL, DEMO_MODE, publicAsset } from "../api-config";
 import { readResponse } from "../review-types";
 import { Icon } from "./icons";
+import Link from "next/link";
+import { addApplication, useApplications } from "../application-store";
 
 type Job = {
   id: string; company: string; title: string; location: string; url: string; provider: string; description: string;
@@ -17,7 +19,20 @@ const safeUrl = (value: string) => { try { const url = new URL(value); return ur
 function isResults(value: unknown): value is Results {
   if (value === null || typeof value !== "object") return false;
   const data = value as Results;
-  return Array.isArray(data.jobs) && data.jobs.every(job => typeof job.title === "string" && typeof job.company === "string" && typeof job.url === "string" && safeUrl(job.url) && typeof job.description === "string" && Array.isArray(job.matched_skills) && Array.isArray(job.missing_skills) && typeof job.sponsorship_label === "string" && Array.isArray(job.why)) && Array.isArray(data.sources) && typeof data.coverage === "string" && typeof data.visa_note === "string" && typeof data.searched_at === "string" && Array.isArray(data.more_platforms) && data.more_platforms.every(link => safeUrl(link.url));
+  const strings = (items: unknown) => Array.isArray(items) && items.every(item => typeof item === "string");
+  return Array.isArray(data.jobs) && data.jobs.every(job => job && typeof job === "object" &&
+    [job.id, job.title, job.company, job.location, job.provider, job.description, job.sponsorship_label, job.sponsorship_status, job.next_action].every(item => typeof item === "string") &&
+    typeof job.url === "string" && safeUrl(job.url) && strings(job.matched_skills) && strings(job.missing_skills) && strings(job.why) &&
+    (job.skill_score === null || typeof job.skill_score === "number" && Number.isFinite(job.skill_score) && job.skill_score >= 0 && job.skill_score <= 100) &&
+    (job.sponsorship_quote === null || typeof job.sponsorship_quote === "string") &&
+    (job.sponsor_source === null || typeof job.sponsor_source === "string" && safeUrl(job.sponsor_source)) &&
+    (job.sponsor_source_date === null || typeof job.sponsor_source_date === "string") &&
+    Array.isArray(job.sponsor_entities) && job.sponsor_entities.every(entity => entity && [entity.legal_name, entity.route, entity.rating].every(item => typeof item === "string"))) &&
+    Array.isArray(data.sources) && data.sources.every(source => source && [source.company, source.provider, source.status].every(item => typeof item === "string") && Number.isInteger(source.count) && source.count >= 0) &&
+    Number.isInteger(data.total_matches) && data.total_matches >= 0 && Number.isInteger(data.listings_checked) && data.listings_checked >= 0 &&
+    typeof data.coverage === "string" && typeof data.visa_note === "string" && typeof data.searched_at === "string" && Number.isFinite(Date.parse(data.searched_at)) &&
+    (data.visa_guidance_url === null || typeof data.visa_guidance_url === "string" && safeUrl(data.visa_guidance_url)) &&
+    Array.isArray(data.more_platforms) && data.more_platforms.every(link => link && typeof link.name === "string" && typeof link.url === "string" && safeUrl(link.url));
 }
 
 export default function JobFinder({ cvText = "", onSelect }: { cvText?: string; onSelect?: (description: string) => void }) {
@@ -30,10 +45,18 @@ export default function JobFinder({ cvText = "", onSelect }: { cvText?: string; 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [openJob, setOpenJob] = useState<string | null>(null);
+  const savedJobs = useApplications();
+  const [saveMessage, setSaveMessage] = useState("");
   const request = useRef<AbortController | null>(null);
   useEffect(() => () => { const previous = request.current; request.current = null; previous?.abort(); }, []);
 
   function invalidate() { const previous = request.current; request.current = null; previous?.abort(); setBusy(false); setResults(null); setError(""); }
+  function saveJob(job: Job) {
+    try {
+      const result = addApplication({ title: job.title, company: job.company, url: job.url, location: job.location, sponsorship: job.sponsorship_label });
+      setSaveMessage(result.duplicate ? "This role is already on your board." : result.persisted ? "Role saved to your application board in this browser." : "Role saved for this tab only; browser storage is unavailable.");
+    } catch (err) { setSaveMessage(err instanceof Error ? err.message : "Could not save this role."); }
+  }
 
   async function search(event: React.FormEvent) {
     event.preventDefault(); if (busy || query.trim().length < 2) return;
@@ -74,12 +97,13 @@ export default function JobFinder({ cvText = "", onSelect }: { cvText?: string; 
     </form>
     {!cvText && <p className="job-search-hint">This shortlist uses your role search and sponsorship preferences. Add a CV in the workspace for a personal skill comparison.</p>}
     {error && <p role="alert" className="error-message">{error}</p>}
+    {saveMessage && <div role="status" className="save-job-status">{saveMessage}<Link href="/applications/">View board <Icon name="arrow" size={14}/></Link></div>}
     {busy && <p role="status" className="job-search-hint">Checking the connected public sources. Your CV is never sent to job platforms.</p>}
     {results && <><div className="job-results-heading"><h2>{results.total_matches ? `${results.total_matches} roles to explore` : "No roles found in these sources"}</h2><span>Checked {new Date(results.searched_at).toLocaleString("en-GB", { timeZone: "Europe/London", dateStyle: "medium", timeStyle: "short" })}</span></div>
       {!results.jobs.length && <p className="quiet-message">Try a broader role or another country. The links below search more platforms directly.</p>}
       <div className="job-results">{results.jobs.map((job, index) => <article className="job-result-card" key={job.id}><div className="job-company-avatar" aria-hidden="true">{job.company.slice(0, 1)}</div><div className="job-result-main"><div className="job-result-title"><div><span>{job.company}</span><h3>{job.title}</h3></div>{job.skill_score !== null && <span className="skill-fit-score">{job.skill_score}<small>/100 skills</small></span>}</div><p className="job-location"><Icon name="location" size={14}/>{job.location || "Location not specified"}<span>{job.provider}</span></p><span className={`sponsorship-pill ${job.sponsorship_status === "not_offered" ? "no" : job.sponsor_entities.length || job.sponsorship_status === "offered" ? "evidence" : "unknown"}`}><Icon name="shield" size={13}/>{need === "not_needed" ? "Confirm your work permission" : job.sponsorship_label}</span>
         {job.matched_skills.length > 0 && <div className="job-skill-tags">{job.matched_skills.slice(0, 4).map(skill => <span key={skill}><Icon name="check" size={11}/>{skill}</span>)}</div>}
-        <div className="job-result-actions"><a href={job.url} target="_blank" rel="noopener noreferrer">{job.provider === "remotive" ? "View on Remotive" : "Open job advert"} <Icon name="arrow" size={14}/></a><button className="text-button" type="button" aria-expanded={openJob === job.id} onClick={() => setOpenJob(openJob === job.id ? null : job.id)}>Why this role?</button>{onSelect && <button type="button" className="text-button" onClick={() => onSelect(job.description)}>Review CV for this job</button>}</div>
+        <div className="job-result-actions"><a href={job.url} target="_blank" rel="noopener noreferrer">{job.provider === "remotive" ? "View on Remotive" : "Open job advert"} <Icon name="arrow" size={14}/></a><button type="button" className={`save-job-button ${savedJobs.some(saved => saved.url === job.url) ? "saved" : ""}`} aria-label={`Save ${job.title} at ${job.company}`} disabled={savedJobs.some(saved => saved.url === job.url)} onClick={() => saveJob(job)}><Icon name={savedJobs.some(saved => saved.url === job.url) ? "check" : "bookmark"} size={14}/>{savedJobs.some(saved => saved.url === job.url) ? "Saved" : "Save job"}</button><button className="text-button" type="button" aria-expanded={openJob === job.id} onClick={() => setOpenJob(openJob === job.id ? null : job.id)}>Why this role?</button>{onSelect && <button type="button" className="text-button" onClick={() => onSelect(job.description)}>Review CV for this job</button>}</div>
         {openJob === job.id && <div className="job-detail"><ul>{job.why.map(text => <li key={text}>{text}</li>)}</ul>{job.sponsorship_quote && <blockquote>{job.sponsorship_quote}</blockquote>}{job.sponsor_entities.map(entity => <p key={entity.legal_name}><strong>{entity.legal_name}</strong> · {entity.route}<br/>{job.sponsor_source && <a href={job.sponsor_source} target="_blank" rel="noopener noreferrer">Official register · {job.sponsor_source_date ?? "date unavailable"}</a>}</p>)}<p><strong>Before applying:</strong> {job.next_action}</p>{index === 0 && <p className="job-shortlist-note">Ranked from the sources checked, not a guarantee that this is the best employer or that you will get an interview.</p>}</div>}
       </div></article>)}</div>
       <details className="source-coverage"><summary>Sources checked and visa guidance</summary><p>{results.coverage}</p><ul>{results.sources.map(source => <li key={`${source.company}-${source.provider}`}>{source.company} · {source.provider} · {source.status === "checked" ? `${source.count} public listings` : "unavailable this time"}</li>)}</ul><p>{results.visa_note}</p>{results.visa_guidance_url && <a href={results.visa_guidance_url} target="_blank" rel="noopener noreferrer">Official visa guidance</a>}</details>

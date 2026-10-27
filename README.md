@@ -13,6 +13,27 @@ Check the workflow status before assuming a particular commit is deployed.
 Personal document upload is disabled in that preview. Full extraction and
 reanalysis run locally using the setup below.
 
+## Show it to a friend
+
+Open the [demo workspace](https://yasinyt4221-netizen.github.io/careerpilot-ai/dashboard/).
+Try a sample CV review, find and save a public job, move it across the application
+board, then prepare an interview answer or download an application draft.
+**Show me around** opens a short tour. **Load example board** adds clearly
+labelled fictional roles without replacing saved real jobs.
+
+- `/dashboard/`: actual board counts, next-action dates and a sample CV preview.
+- `/workspace/`: highlighted CV edits, undo, text download and print review.
+- `/jobs/`: public listings, sponsorship evidence and save-to-board controls.
+- `/applications/`: board/list views, stages, notes, dates, manual job links and CSV export.
+- `/prepare/`: role-based practice prompts, a STAR answer builder, cover-letter
+  drafts and follow-up email drafts made from entered facts.
+- `/help/`: demo limitations, browser storage, export and deletion controls.
+
+Saved roles use this browser's local storage; there is no account or cross-device
+sync. Drafts and CV text are not persisted by the app. Blocked storage falls
+back to tab-only state with an explicit message. No application or email is sent.
+See [showcase notes](docs/showcase.md) for research, behavior and verification.
+
 ## Requirements
 
 - Node.js 20.9+ and npm (verified locally with Node 24).

@@ -42,8 +42,11 @@ test("job search uses stated sponsorship needs and shows evidence without guaran
 });
 
 test("malformed external job links are rejected", async ({ page }) => {
-  await page.route("**/api/jobs/search", route => route.fulfill({ json: { ...result, jobs: [{ ...result.jobs[0], url: "javascript:alert(1)" }] } }));
-  await page.goto("/jobs/");
-  await page.getByRole("button", { name: "Find jobs", exact: true }).click();
-  await expect(page.getByRole("main").getByRole("alert")).toContainText("unexpected response");
+  for (const malformed of [{ url: "javascript:alert(1)" }, { sponsor_entities: null }, { sponsor_source: "javascript:alert(1)" }]) {
+    await page.route("**/api/jobs/search", route => route.fulfill({ json: { ...result, jobs: [{ ...result.jobs[0], ...malformed }] } }));
+    await page.goto("/jobs/");
+    await page.getByRole("button", { name: "Find jobs", exact: true }).click();
+    await expect(page.getByRole("main").getByRole("alert")).toContainText("unexpected response");
+    await page.unroute("**/api/jobs/search");
+  }
 });

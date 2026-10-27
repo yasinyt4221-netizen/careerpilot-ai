@@ -13,6 +13,9 @@ GitHub Actions tests and publishes pushes to `main`, manual runs, and a daily
   visual before/after structures, precise typo changes, and undo.
 - A dated snapshot of public job feeds. Role/country/sponsorship filters run
   in the browser. Original adverts and source dates are linked.
+- A dashboard, persistent browser application board, job notes and next-action
+  dates, CSV export, interview practice and downloadable factual drafts. See
+  [showcase.md](showcase.md) for the expanded release.
 
 GitHub Pages serves static files; it cannot run FastAPI. Public CV upload and
 personal reanalysis are disabled. Sample edits stay in the browser and do not
@@ -73,10 +76,11 @@ or secret is required by the current release.
 - Backend: 144 tests passed, including the real cached local model with network
   access blocked, public-demo restrictions, source adapters, sponsorship
   interpretation, ranking, and original document-upload regressions.
-- Applicant browser suite: 30 tests; the latest local run recorded passed.
+- Applicant browser suite: 39 tests passed in the expanded showcase release.
 - ESLint, TypeScript, and the static production build passed.
 - The exported site was exercised at its `/careerpilot-ai` base path: sample
-  review, highlights, apply/undo, dated job results, desktop/mobile navigation,
+  review, highlights, apply/undo, dated job results, saving jobs, persistent
+  application stages, the tour, preparation drafts, desktop/mobile navigation,
   no horizontal overflow, no page errors, and no document POSTs.
 - The live feed probe returned 2,121 URL-deduplicated listings across the twelve
   configured feeds. That is a point-in-time observation, not a coverage promise.

@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import CVReview from "../components/cv-review";
 import { isReviewResponse, readResponse, type ReviewItem, type ReviewResponse } from "../review-types";
-import SiteHeader from "../components/site-header";
 import JobFinder from "../components/job-finder";
 import { API_URL, DEMO_MODE, publicAsset } from "../api-config";
 
@@ -23,12 +22,19 @@ export default function Home() {
   const [baselineScore, setBaselineScore] = useState<number | null>(null);
   const [showJobs, setShowJobs] = useState(false);
   const [demoHistory, setDemoHistory] = useState<{ text: string; response: ReviewResponse }[]>([]);
+  const [sampleMode, setSampleMode] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const reviewHeading = useRef<HTMLDivElement>(null);
   const controller = useRef<AbortController | null>(null);
   const revision = useRef(0);
 
   useEffect(() => () => { revision.current++; controller.current?.abort(); }, []);
+  useEffect(() => {
+    if (DEMO_MODE || new URLSearchParams(window.location.search).get("sample") === "1") {
+      void loadDemo();
+    }
+    // This link loads only the fixed synthetic sample, never a user document.
+  }, []);
 
   function invalidate() {
     revision.current++; controller.current?.abort();
@@ -37,7 +43,7 @@ export default function Home() {
 
   function choose(candidate: File | undefined) {
     if (DEMO_MODE) return;
-    invalidate(); setFile(null); setCvText(null); setHistory([]);
+    invalidate(); setFile(null); setCvText(null); setHistory([]); setSampleMode(false);
     if (!candidate) return;
     if (!/\.(pdf|docx)$/i.test(candidate.name)) setError("Choose a PDF or DOCX CV.");
     else if (candidate.size === 0) setError("This file is empty. Choose a CV with text in it.");
@@ -98,7 +104,7 @@ export default function Home() {
     if (cvText === null || item.start === null || item.end === null || cvText.slice(item.start, item.end) !== item.excerpt) {
       setError("This passage has changed. Analyse your CV again before editing it."); return;
     }
-    if (DEMO_MODE && response) {
+    if ((DEMO_MODE || sampleMode) && response) {
       const nextText = cvText.slice(0, item.start) + replacement + cvText.slice(item.end);
       const difference = replacement.length - (item.end - item.start);
       const changes = response.review.changes.filter(change => change.id !== item.id && !(change.start! < item.end! && change.end! > item.start!)).map(change => change.start! >= item.end! ? { ...change, start: change.start! + difference, end: change.end! + difference } : change);
@@ -110,28 +116,32 @@ export default function Home() {
   }
 
   async function loadDemo() {
+    const current = ++revision.current;
+    controller.current?.abort();
+    const abort = new AbortController(); controller.current = abort;
     setBusy("analysing"); setError("");
     try {
-      const data = await readResponse(await fetch(publicAsset("sample-review.json"))) as { cv_text: string; job_description: string; report: unknown };
+      const data = await readResponse(await fetch(publicAsset("sample-review.json"), { signal: abort.signal })) as { cv_text: string; job_description: string; report: unknown };
       if (!isReviewResponse(data.report, data.cv_text)) throw new Error("The sample review is unavailable. Please try again later.");
-      setCvText(data.cv_text); setDescription(data.job_description); setResponse(data.report); setBaselineScore(data.report.score); setEditingInputs(false); setHistory([]); setDemoHistory([]); setReviewVersion(value => value + 1);
-    } catch (err) { setError(err instanceof Error ? err.message : "Sample review unavailable."); }
-    finally { setBusy(null); }
+      if (current !== revision.current) return;
+      setSampleMode(true); setFile(null); setCvText(data.cv_text); setDescription(data.job_description); setResponse(data.report); setBaselineScore(data.report.score); setEditingInputs(false); setHistory([]); setDemoHistory([]); setReviewVersion(value => value + 1);
+    } catch (err) { if (current === revision.current && !abort.signal.aborted) setError(err instanceof Error ? err.message : "Sample review unavailable."); }
+    finally { if (current === revision.current) setBusy(null); }
   }
 
   function cancel() { revision.current++; controller.current?.abort(); setBusy(null); }
 
   async function undoEdit() {
-    if (!DEMO_MODE) { await runReview(history[history.length - 1], true); return; }
+    if (!DEMO_MODE && !sampleMode) { await runReview(history[history.length - 1], true); return; }
     const previous = demoHistory[demoHistory.length - 1];
     if (previous) { setCvText(previous.text); setResponse(previous.response); setDemoHistory(value => value.slice(0, -1)); setReviewVersion(value => value + 1); }
   }
 
   return <div>
-    <SiteHeader />
     <main className="workspace">
+      {sampleMode && !DEMO_MODE && <div className="demo-banner"><strong>Sample review.</strong> Explore visual edits using synthetic text. Sample edits do not recalculate the score.</div>}
       {DEMO_MODE && <div className="demo-banner"><p><strong>Public preview.</strong> Explore a sample CV and published job feeds. Personal CV uploads are disabled until secure backend hosting is connected.</p><button type="button" className="small-primary" onClick={loadDemo} disabled={!!busy}>Try the sample CV</button>{response && <span> Edits stay in this preview; the sample score is not recalculated.</span>}</div>}
-      {!response && <div className="intro"><p className="eyebrow">A CLEARER CV. A STRONGER APPLICATION.</p><h1>Know exactly what to change.</h1><p>Upload your CV and paste the job description.<br />Get highlighted passages and practical recommendations.</p></div>}
+      {!response && <div className="intro"><p className="eyebrow">A CLEARER CV. A STRONGER APPLICATION.</p><h1>Know exactly what to change.</h1><p>{DEMO_MODE ? "Try the sample to explore highlighted edits and before/after suggestions." : <>Upload your CV and paste the job description.<br />Get highlighted passages and practical recommendations.</>}</p>{!DEMO_MODE && <button className="secondary-button sample-review-link" type="button" onClick={loadDemo} disabled={!!busy}>Or try a sample review</button>}</div>}
 
       {response && <div className="input-summary"><div><span aria-hidden="true">✓</span><p><strong>{file?.name}</strong><small>{response.analysis.title ?? "Your chosen role"}</small></p></div><button className="text-button" type="button" onClick={() => setEditingInputs(value => !value)} disabled={!!busy}>{editingInputs ? "Close inputs" : "Change CV or job"}</button></div>}
 
@@ -155,7 +165,7 @@ export default function Home() {
 
       {busy && <div role="status" className="loading-note"><span className="spinner" aria-hidden="true" />{busy === "updating" ? "Updating your review…" : busy === "reading" ? "Reading your CV…" : "Finding useful changes for this role…"}<button type="button" className="text-button" onClick={cancel}>Cancel</button></div>}
       {error && <div role="alert" className="error-message">{error}</div>}
-      {response && cvText !== null && <><div ref={reviewHeading} tabIndex={-1} className="review-result"><CVReview key={reviewVersion} text={cvText} filename={file?.name ?? "Sample CV"} response={response} baselineScore={baselineScore} updating={!!busy} onReplace={replace} onUndo={undoEdit} canUndo={DEMO_MODE ? demoHistory.length > 0 : history.length > 0} /></div><div className="workspace-job-toggle"><div><h2>Find your next opportunity</h2><p>Explore public job boards with your skills and sponsorship needs in mind.</p></div><button className="primary-button" type="button" onClick={() => setShowJobs(value => !value)}>{showJobs ? "Hide jobs" : "Find matching jobs"}</button></div>{showJobs && <JobFinder cvText={DEMO_MODE ? "" : cvText} onSelect={DEMO_MODE ? undefined : selected => { invalidate(); setDescription(selected); setShowJobs(false); }}/>}</>}
+      {response && cvText !== null && <><div ref={reviewHeading} tabIndex={-1} className="review-result"><CVReview key={reviewVersion} text={cvText} filename={file?.name ?? "Sample CV"} response={response} baselineScore={baselineScore} updating={!!busy} onReplace={replace} onUndo={undoEdit} canUndo={DEMO_MODE || sampleMode ? demoHistory.length > 0 : history.length > 0} /></div><div className="workspace-job-toggle"><div><h2>Find your next opportunity</h2><p>Explore public job boards with your skills and sponsorship needs in mind.</p></div><button className="primary-button" type="button" onClick={() => setShowJobs(value => !value)}>{showJobs ? "Hide jobs" : "Find matching jobs"}</button></div>{showJobs && <JobFinder cvText={DEMO_MODE || sampleMode ? "" : cvText} onSelect={DEMO_MODE || sampleMode ? undefined : selected => { invalidate(); setDescription(selected); setShowJobs(false); }}/>}</>}
       <footer className="workspace-footer"><p>Your experience, in your own words. Only add what is true.</p><p>Development demo · Use synthetic CVs only</p></footer>
     </main>
   </div>;

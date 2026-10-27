@@ -2,6 +2,7 @@
 
 import { Fragment, useState } from "react";
 import type { ReviewItem, ReviewResponse } from "../review-types";
+import { downloadText } from "../application-store";
 
 type Props = {
   text: string;
@@ -70,7 +71,7 @@ export default function CVReview({ text, filename, response, baselineScore, upda
     {plan.notices.map((notice, index) => <p className="review-notice" key={index}>{notice}</p>)}
     <div className="review-columns">
       <div className="cv-document-panel">
-        <div className="document-toolbar"><div><strong>Your CV</strong><span>{filename}</span></div><div>{canUndo && <button type="button" className="text-button" disabled={updating} onClick={onUndo}>Undo last edit</button>}<button type="button" className="text-button" onClick={copy}>{copied ? "Copied" : "Copy text"}</button></div></div>
+        <div className="document-toolbar"><div><strong>Your CV</strong><span>{filename}</span></div><div>{canUndo && <button type="button" className="text-button" disabled={updating} onClick={onUndo}>Undo last edit</button>}<button type="button" className="text-button" onClick={copy}>{copied ? "Copied" : "Copy text"}</button><button type="button" className="text-button" onClick={() => downloadText("careerpilot-reviewed-cv.txt", text)}>Download text</button><button type="button" className="text-button" onClick={() => window.print()}>Print review</button></div></div>
         {copyError && <p role="status" className="copy-help">{copyError}</p>}
         <div className="cv-paper" role="document" aria-label="Your CV with highlighted suggestions" data-testid="cv-preview">
           {boundaries.slice(0, -1).map((start, index) => {
