@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { apiFetch, API_URL, DEMO_MODE, publicAsset } from "../api-config";
 import { readResponse } from "../review-types";
 import { Icon } from "./icons";
@@ -19,6 +19,9 @@ type Job = {
 };
 type Results = { jobs: Job[]; total_matches: number; listings_checked: number; compared_count?: number; senior_roles_excluded?: number; sources: { company: string; provider: string; status: string; count: number }[]; searched_at: string; coverage: string; visa_note: string; more_platforms: { name: string; url: string }[]; visa_guidance_url: string | null; register_available: boolean };
 const safeUrl = (value: string) => { try { const url = new URL(value); return url.protocol === "https:" && !url.username && !url.password; } catch { return false; } };
+const subscribeHydrated = () => () => {};
+const clientReady = () => true;
+const serverReady = () => false;
 function isResults(value: unknown): value is Results {
   if (value === null || typeof value !== "object") return false;
   const data = value as Results;
@@ -39,6 +42,7 @@ function isResults(value: unknown): value is Results {
 }
 
 export default function JobFinder({ cvText = "", onSelect }: { cvText?: string; onSelect?: (description: string) => void }) {
+  const hydrated = useSyncExternalStore(subscribeHydrated, clientReady, serverReady);
   const [query, setQuery] = useState(cvText ? "" : "Software engineer");
   const [careerLevel, setCareerLevel] = useState(cvText ? "student" : "any");
   const [country, setCountry] = useState("United Kingdom");
@@ -97,7 +101,7 @@ export default function JobFinder({ cvText = "", onSelect }: { cvText?: string; 
 
   return <section className="job-discovery" aria-labelledby="jobs-heading"><div className="job-discovery-heading"><div><p className="eyebrow">YOUR NEXT OPPORTUNITY</p><h1 id="jobs-heading">Find roles your CV can support.</h1><p>Compare real requirements with your work and projects. See the evidence behind each recommendation.</p></div><span className="job-source-badge"><Icon name="briefcase" size={16}/>{DEMO_MODE && !API_URL ? "Published job feed" : "Public company feeds"}</span></div>
     <div className="cv-search-context">{cvText ? <><Icon name="file" size={20}/><p><strong>Matching from your CV</strong><span>No title needed. We compare the connected listings against the skills and work your CV demonstrates.</span></p><label>Career stage<select aria-label="Career stage" value={careerLevel} onChange={e => { invalidate(); setCareerLevel(e.target.value); }}><option value="student">Student / graduate</option><option value="any">Any seniority</option></select></label></> : <p><Link href="/workspace/">Upload your CV</Link> to rank companies against your experience rather than a keyword search.</p>}<Link href="/connections/">LinkedIn, Indeed & Handshake <Icon name="external" size={13}/></Link></div>
-    <form className="job-search-form" onSubmit={search} aria-busy={busy}><div className="job-search-main"><label>Role or keywords<input value={query} onChange={event => { invalidate(); setQuery(event.target.value); }} maxLength={100} placeholder={cvText ? "Optional: narrow by a role" : "e.g. Data analyst"} required={!cvText} minLength={2}/></label><label>Job country<select aria-label="Job country" value={country} onChange={event => { invalidate(); setCountry(event.target.value); }}>{["United Kingdom", "Ireland", "Germany", "Netherlands", "United States", "Canada", "Australia", "Any"].map(value => <option key={value}>{value}</option>)}</select></label><button className="primary-button" type="submit" disabled={busy || (!cvText && query.trim().length < 2)}>{busy ? "Comparing CV evidence…" : cvText ? "Find roles for my CV" : "Find jobs"}<Icon name="arrow" size={17}/></button></div>
+    <form className="job-search-form" onSubmit={search} aria-busy={busy}><div className="job-search-main"><label>Role or keywords<input value={query} onChange={event => { invalidate(); setQuery(event.target.value); }} maxLength={100} placeholder={cvText ? "Optional: narrow by a role" : "e.g. Data analyst"} required={!cvText} minLength={2}/></label><label>Job country<select aria-label="Job country" value={country} onChange={event => { invalidate(); setCountry(event.target.value); }}>{["United Kingdom", "Ireland", "Germany", "Netherlands", "United States", "Canada", "Australia", "Any"].map(value => <option key={value}>{value}</option>)}</select></label><button className="primary-button" type="submit" disabled={!hydrated || busy || (!cvText && query.trim().length < 2)}>{busy ? "Comparing CV evidence…" : cvText ? "Find roles for my CV" : "Find jobs"}<Icon name="arrow" size={17}/></button></div>
       <details className="visa-profile" open><summary><Icon name="shield" size={16}/>Your work permission</summary><div><label>Visa or work permission <span>(optional)</span><input value={visa} maxLength={100} placeholder="e.g. Graduate visa" onChange={event => { invalidate(); setVisa(event.target.value); }}/></label><label>Employer sponsorship<select aria-label="Employer sponsorship" value={need} onChange={event => { invalidate(); setNeed(event.target.value); }}><option value="unknown">I need to check</option><option value="now">I need sponsorship now</option><option value="later">I may need sponsorship later</option><option value="not_needed">I do not need sponsorship</option></select></label><label className="checkbox-label"><input type="checkbox" checked={hideNo} onChange={event => { invalidate(); setHideNo(event.target.checked); }}/>Hide adverts saying no sponsorship</label></div><p>Visa category alone does not establish eligibility. Check your actual permission conditions and the employer’s offer.</p></details>
     </form>
     {!cvText && <p className="job-search-hint">This shortlist uses your role search and sponsorship preferences. Add a CV in the workspace for a personal skill comparison.</p>}

@@ -167,7 +167,7 @@ def _request(key: str, prompt: str, schema: dict | None = None, *, model: str | 
         payload['generationConfig'].update(responseMimeType='application/json', responseJsonSchema=transport_schema(schema))
     try:
         # No redirects, URL parameters, SDK telemetry or key/document logging.
-        with httpx.Client(timeout=httpx.Timeout(75 if schema else 30, connect=10), follow_redirects=False) as client:
+        with httpx.Client(timeout=httpx.Timeout(30 if probe or not schema else 75, connect=10), follow_redirects=False) as client:
             for attempt in range(2):
                 response = client.post(ENDPOINT.format(model=selected_model), headers={'x-goog-api-key': key}, json=payload)
                 # One bounded retry, only for explicit transient service failures.
@@ -241,6 +241,7 @@ Extract CV skills with an exact supporting evidence quote, status demonstrated/m
 Use concise canonical skill names. Inferred means a capability shown through actions without its keyword.
 If an advert is supplied, extract only actual role requirements, not employer marketing or benefits.
 For each requirement quote its exact source and one exact CV evidence excerpt, or null if none.
+Return separate requirements for skills joined by AND. Keep explicit OR alternatives as one choice.
 Use priority required/preferred/unspecified. Use status demonstrated/mentioned/related/not_found.
 An action that demonstrates a capability can count without its keyword. A named product/tool cannot be
 invented from generic work. Never infer years, completed degrees, certificates, visa eligibility or proficiency.

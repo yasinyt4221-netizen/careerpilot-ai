@@ -167,3 +167,23 @@ def test_gemini_cannot_turn_a_listed_skill_into_demonstrated_work(monkeypatch):
     monkeypatch.setattr(gemini_review, 'review', lambda *_: result)
     report = review_documents('Skills\nPython', 'Developer\nRequired:\nPython programming experience', 'gemini')
     assert report.matches[0].evidence_status == 'mentioned'
+
+
+@pytest.mark.parametrize('joiner,expected', [('and', {'SQL': 'matched', 'Python': 'not_found'}), ('or', {'SQL or Python': 'matched'})])
+def test_gemini_combined_skills_require_independent_evidence_unless_explicit_alternatives(monkeypatch, joiner, expected):
+    source = f'SQL {joiner} Python'
+    cv = 'Queried PostgreSQL to combine customer records.'
+    result = gemini_review.AIReview(edits=[], skills=[], requirements=[gemini_review.AIRequirement(label=source, source=source, priority='required', status='demonstrated', evidence=cv, reason='Synthetic combined claim')])
+    monkeypatch.setattr(gemini_review, 'review', lambda *_: result)
+    report = review_documents(cv, 'Data Analyst\nRequired:\n' + source, 'gemini')
+    assert {item.requirement.label: item.status for item in report.matches} == expected
+    missing = [item for item in report.matches if item.requirement.label == 'Python']
+    assert all(item.evidence is None and item.evidence_status == 'not_found' for item in missing)
+
+
+def test_gemini_omission_does_not_hide_a_named_job_requirement(monkeypatch):
+    cv = 'Queried PostgreSQL to combine customer records.'
+    result = gemini_review.AIReview(edits=[], skills=[], requirements=[gemini_review.AIRequirement(label='SQL', source='SQL and Python', priority='required', status='demonstrated', evidence=cv, reason='Synthetic omission')])
+    monkeypatch.setattr(gemini_review, 'review', lambda *_: result)
+    report = review_documents(cv, 'Data Analyst\nRequired:\nSQL and Python', 'gemini')
+    assert {item.requirement.label: item.status for item in report.matches} == {'SQL': 'matched', 'Python': 'not_found'}

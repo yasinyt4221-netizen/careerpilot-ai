@@ -122,7 +122,7 @@ need approved access; Handshake restricts API access to career-services partners
 
 ## Verification on 27 October 2026
 
-The backend suite passed 231 tests with the cached local model enabled. The
+The backend suite passed 234 tests with the cached local model enabled. The
 browser suite passed 50 tests, including CV-only analysis, exact deletion/undo,
 factual line building, shared CV-to-job flow, evidence instead of arbitrary scores,
 Gemini key non-persistence, cloud consent and mobile platform links. ESLint,
@@ -132,8 +132,8 @@ the HTTP 400 RPC-array diagnosis and cleared input. A subsequent user connection
 passed the real synthetic inference check (`configured=true`, `verified=true`).
 However, three live synthetic CV reviews produced one provider timeout and two
 Google HTTP 503 errors. A completed live Gemini CV review remains unverified.
-The key is kept connected; no restart or key extraction was used for these tests.
-Those attempts preceded the compact generateContent transport. Its live structured review remains to be verified. Provider error/retry cases also have automated tests. The hosted frontend export passed access/session/header, lock, secret non-persistence and mobile checks with synthetic responses.
+Keys entered locally are cleared on backend restarts; no key extraction is used for testing.
+Those attempts preceded the compact generateContent transport. A subsequent real browser upload, explicit consent, Gemini 3.5 Flash-Lite review and badge rendering completed with HTTP 200 in 18 seconds on synthetic input. Independent follow-up guards split AND requirements, retain omitted named skills and preserve listed-only evidence; regression tests cover those checks. Provider error/retry cases also have automated tests. The hosted frontend export passed access/session/header, lock, secret non-persistence and mobile checks with synthetic responses.
 
 A synthetic student-CV live probe checked 2,123 public listings across twelve
 available feeds. After filtering it compared seventeen relevant adverts and

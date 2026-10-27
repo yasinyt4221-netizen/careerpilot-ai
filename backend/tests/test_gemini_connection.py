@@ -74,6 +74,7 @@ def test_connection_trims_pasted_whitespace_and_clears_previous_error(monkeypatc
         assert body['generationConfig']['thinkingConfig'] == {'thinkingLevel': 'LOW'}
         assert body['generationConfig']['maxOutputTokens'] == 1024
         assert body['generationConfig']['responseMimeType'] == 'application/json'
+        assert request.extensions['timeout']['read'] == 30
         assert '$defs' not in body['generationConfig']['responseJsonSchema']
         return httpx.Response(200, json={'candidates': [{'finishReason': 'STOP', 'content': {'parts': [{'text': '{"edits":[],"requirements":[],"skills":[]}' }]}}]})
     mock_google(monkeypatch, google)

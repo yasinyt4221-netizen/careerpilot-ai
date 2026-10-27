@@ -1,4 +1,5 @@
 """CV-only review and optional, explicitly requested Gemini enrichment."""
+import re
 from job_analyser import JobAnalysis, Requirement, analyse_job, YEAR_PATTERN
 from matching import MatchReport, MatchSettings, RequirementMatch, compare_cv, cv_chunks, explicit_match
 from cv_review import ReviewItem, anchor, build_review, section_at, utf16_offset
@@ -48,8 +49,25 @@ def review_documents(cv_text: str, job_description: str = '', provider: str = 'l
     if job_description:
         chunks = cv_chunks(cv_text)
         report.matches = []
-        for index, item in enumerate(result.requirements, 1):
-            import re
+        expanded = []
+        seen = set()
+        for item in result.requirements:
+            names = list(dict.fromkeys(name for name, _, _ in mentions(item.label)))
+            # AND requires evidence for each skill. An explicit OR stays one choice.
+            split = len(names) > 1 and not re.search(r'\bor\b', item.source, re.I) and not YEAR_PATTERN.search(item.label) and not re.search(r'degree|certif|licen[cs]|bachelor|master', item.label, re.I)
+            for proposed in [item.model_copy(update={'label': name}) for name in names] if split else [item]:
+                key = (proposed.label.casefold(), proposed.source)
+                if key not in seen:
+                    expanded.append(proposed)
+                    seen.add(key)
+        covered = {name for item in expanded for name, _, _ in mentions(item.label)}
+        for local in report.analysis.requirements:
+            # Model omissions must not hide an independently identified job skill.
+            if local.kind == 'skill' and local.skills and not set(local.skills).intersection(covered):
+                expanded.append(gemini_review.AIRequirement(label=local.label, source=local.source, priority=local.priority,
+                    status='not_found', evidence=None, reason='Also checked from the original job requirement.'))
+                covered.update(local.skills)
+        for index, item in enumerate(expanded, 1):
             skills = list(dict.fromkeys(name for name, _, _ in mentions(item.label)))
             kind = 'experience' if YEAR_PATTERN.search(item.label) else 'qualification' if re.search(r'degree|certif|licen[cs]|bachelor|master', item.label, re.I) else 'skill' if skills else 'responsibility'
             requirement = Requirement(id=f'gemini-req-{index}', label=item.label, source=item.source, kind=kind, priority=item.priority, skills=skills)
@@ -70,6 +88,12 @@ def review_documents(cv_text: str, job_description: str = '', provider: str = 'l
             if kind == 'responsibility' and item.status == 'demonstrated' and item.evidence:
                 status = 'matched'
             evidence = explicit or item.evidence
+            if kind == 'skill' and not established and all(skill not in ACTIVITIES for skill in skills):
+                # A SQL project does not establish Python, even if the model joined
+                # the two requirements or proposed a general programming passage.
+                evidence = None
+                status = 'not_found'
+                reason = f'No CV evidence of {requirement.label} was found. Related work does not establish use of this named skill or tool.'
             evidence_status = 'demonstrated' if status == 'matched' else 'related' if evidence else 'not_found'
             if established and kind == 'skill':
                 supports = [skill_evidence(skill, chunks) for skill in requirement.skills]
@@ -77,9 +101,9 @@ def review_documents(cv_text: str, job_description: str = '', provider: str = 'l
                 if supports and supports[0][0]:
                     evidence_status = supports[0][1]
             report.matches.append(RequirementMatch(requirement=requirement, status=status, evidence=evidence,
-                reason=reason if established or kind in {'experience', 'education', 'qualification'} else item.reason,
+                reason=reason if established or kind in {'experience', 'education', 'qualification'} or status == 'not_found' else item.reason,
                 similarity=None, rule_credit=1 if established else 0, semantic_credit=None, priority_weight=2 if item.priority == 'required' else 1,
-                suggestion=item.reason, evidence_status=evidence_status, evidence_line=line_number(cv_text, evidence) if evidence else None))
+                suggestion=reason if status == 'not_found' else item.reason, evidence_status=evidence_status, evidence_line=line_number(cv_text, evidence) if evidence else None))
         if not report.matches:
             # No valid source-anchored requirements: retain the independently computed local report.
             report.matches = compare_cv(cv_text, job_description).matches
