@@ -1,0 +1,14 @@
+[
+  {"provider":"greenhouse","board":"monzo","company":"Monzo","legal_names":["Monzo Bank Limited"]},
+  {"provider":"greenhouse","board":"wise","company":"Wise","legal_names":["Wise Payments Limited"]},
+  {"provider":"greenhouse","board":"canonical","company":"Canonical","legal_names":["Canonical UK Limited"]},
+  {"provider":"greenhouse","board":"deliveroo","company":"Deliveroo","legal_names":[]},
+  {"provider":"greenhouse","board":"cloudflare","company":"Cloudflare","legal_names":["Cloudflare Limited"]},
+  {"provider":"greenhouse","board":"datadog","company":"Datadog","legal_names":[]},
+  {"provider":"lever","board":"spotify","company":"Spotify","legal_names":["Spotify Limited"]},
+  {"provider":"ashby","board":"linear","company":"Linear","legal_names":[]},
+  {"provider":"ashby","board":"notion","company":"Notion","legal_names":[]},
+  {"provider":"arbeitnow","board":"uk","company":"Arbeitnow UK","legal_names":[]},
+  {"provider":"arbeitnow","board":"europe","company":"Arbeitnow Europe","legal_names":[]},
+  {"provider":"remotive","board":"remote","company":"Remotive","legal_names":[]}
+]

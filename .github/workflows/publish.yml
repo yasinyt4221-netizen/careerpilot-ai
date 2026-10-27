@@ -1,0 +1,94 @@
+name: Verify and publish CareerPilot
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '15 6 * * *'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/configure-pages@v5
+      - name: Install backend dependencies
+        run: python -m pip install -r backend/requirements-dev.txt
+      - name: Prepare local model
+        working-directory: backend
+        run: python prepare_semantic_model.py
+      - name: Test backend, including offline local embeddings
+        working-directory: backend
+        env:
+          RUN_SEMANTIC_TESTS: '1'
+        run: python -m pytest -q
+      - name: Prepare public sample and dated job feed
+        working-directory: backend
+        run: python prepare_public_preview.py
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Check frontend
+        working-directory: frontend
+        run: npm run lint && npm run typecheck
+      - name: Install browser for verification
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Test applicant workflow and job-search UI
+        working-directory: frontend
+        env:
+          CAREERPILOT_PYTHON: python
+          REQUIRE_HYBRID: '1'
+        run: npm run test:e2e
+      - name: Build static public preview
+        working-directory: frontend
+        env:
+          STATIC_EXPORT: 'true'
+          NEXT_PUBLIC_BASE_PATH: /careerpilot-ai
+          NEXT_PUBLIC_DEMO_MODE: 'true'
+          NEXT_PUBLIC_API_URL: ${{ vars.CAREERPILOT_API_URL }}
+        run: npm run build
+      - name: Verify exported public preview
+        working-directory: frontend
+        run: |
+          mkdir -p "$RUNNER_TEMP/preview"
+          ln -s "$GITHUB_WORKSPACE/frontend/out" "$RUNNER_TEMP/preview/careerpilot-ai"
+          python -m http.server 3100 --bind 127.0.0.1 --directory "$RUNNER_TEMP/preview" > "$RUNNER_TEMP/preview.log" 2>&1 &
+          preview_pid=$!
+          trap 'kill "$preview_pid"' EXIT
+          npm run test:public-preview
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: frontend/out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
