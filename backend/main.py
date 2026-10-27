@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, StringConstraints, SecretStr
 from typing import Literal
 from review_service import review_documents
 import gemini_review
+import hosted_access
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -52,12 +53,13 @@ class UploadSizeLimit:
 
 app = FastAPI(title="CareerPilot AI API", version="0.1.0")
 app.add_middleware(UploadSizeLimit)
+app.add_middleware(hosted_access.HostedAccess)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",") if origin.strip()],
     allow_credentials=False,
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 
@@ -93,10 +95,25 @@ class ReviewRequest(BaseModel):
 
 class GeminiConnection(BaseModel):
     api_key: SecretStr = Field(min_length=12, max_length=300)
+    model: str | None = Field(default=None, max_length=100)
+
+
+class AccessLogin(BaseModel):
+    access_code: SecretStr = Field(min_length=1, max_length=200)
+
+
+@app.post('/api/access/session')
+def access_login(body: AccessLogin):
+    if not hosted_access.hosted():
+        raise HTTPException(404, 'Hosted access is not enabled in this local app.')
+    token = hosted_access.login(body.access_code.get_secret_value())
+    if not token:
+        raise HTTPException(401, 'The workspace access code was not accepted.')
+    return {'token': token, 'expires_in': 3600}
 
 
 def local_connection_only(request: Request):
-    if os.getenv('PUBLIC_DEMO_ONLY', 'false').lower() == 'true' or request.client.host not in {'127.0.0.1', '::1', 'testclient'}:
+    if hosted_access.hosted() or os.getenv('PUBLIC_DEMO_ONLY', 'false').lower() == 'true' or request.client.host not in {'127.0.0.1', '::1', 'testclient'}:
         raise HTTPException(status_code=403, detail='AI connection settings are available only in the local application.')
     if request.headers.get('origin') not in {None, 'http://localhost:3000', 'http://127.0.0.1:3000'}:
         raise HTTPException(status_code=403, detail='Open the local application to manage the AI connection.')
@@ -110,7 +127,7 @@ def ai_status():
 @app.post('/api/ai/connect')
 def connect_ai(body: GeminiConnection, request: Request):
     local_connection_only(request)
-    return gemini_review.connect(body.api_key)
+    return gemini_review.connect(body.api_key, body.model)
 
 
 @app.post('/api/ai/disconnect')
@@ -166,6 +183,8 @@ class CVResult(BaseModel):
 
 @app.get("/api/health")
 def health():
+    if hosted_access.hosted() and not hosted_access.ready():
+        return JSONResponse({'status': 'not_ready'}, status_code=503)
     return {"status": "ok"}
 
 

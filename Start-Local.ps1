@@ -26,9 +26,11 @@ $existing | ForEach-Object { Stop-Process -Id $_.ProcessId -ErrorAction Silently
 $settings = @{
     STATIC_EXPORT = 'false'
     NEXT_PUBLIC_DEMO_MODE = 'false'
+    NEXT_PUBLIC_HOSTED_MODE = 'false'
     NEXT_PUBLIC_BASE_PATH = ''
     NEXT_PUBLIC_API_URL = 'http://127.0.0.1:8000'
     PUBLIC_DEMO_ONLY = 'false'
+    HOSTED_MODE = 'false'
     SEMANTIC_ENABLED = 'true'
     CORS_ORIGINS = 'http://localhost:3000,http://127.0.0.1:3000'
 }

@@ -4,7 +4,7 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 import CVReview from "../components/cv-review";
 import { isReviewResponse, readResponse, type ReviewItem, type ReviewResponse } from "../review-types";
 import JobFinder from "../components/job-finder";
-import { API_URL, DEMO_MODE, publicAsset } from "../api-config";
+import { apiFetch, HOSTED_MODE, API_URL, DEMO_MODE, publicAsset } from "../api-config";
 import { useCVSession } from "../cv-session";
 import Link from "next/link";
 
@@ -34,7 +34,7 @@ export default function Home() {
   const revision = useRef(0);
 
   useEffect(() => () => { revision.current++; controller.current?.abort(); }, []);
-  useEffect(() => { if (!DEMO_MODE) { const abort = new AbortController(); fetch(`${API_URL}/api/ai/status`, { signal: abort.signal }).then(r => r.json()).then(data => setGeminiReady(data.configured === true)).catch(() => {}); return () => abort.abort(); } }, []);
+  useEffect(() => { if (!DEMO_MODE) { const abort = new AbortController(); apiFetch(`${API_URL}/api/ai/status`, { signal: abort.signal }).then(r => r.json()).then(data => setGeminiReady(data.configured === true)).catch(() => {}); return () => abort.abort(); } }, []);
   const reviewSelectedJob = useEffectEvent(() => { if (session.target && session.text && !DEMO_MODE) void runReview(undefined, false, session.target.description); });
   useEffect(() => { reviewSelectedJob(); }, [session.target]);
   useEffect(() => {
@@ -61,7 +61,7 @@ export default function Home() {
 
   async function requestReview(text: string, signal: AbortSignal, advert = description): Promise<ReviewResponse> {
     const enhanced = !advert.trim() || session.provider === "gemini";
-    const result = await fetch(`${API_URL}${enhanced ? "/api/cvs/review" : "/api/matches/compare"}`, {
+    const result = await apiFetch(`${API_URL}${enhanced ? "/api/cvs/review" : "/api/matches/compare"}`, {
       method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", signal,
       body: JSON.stringify({ cv_text: text, job_description: advert, ...(enhanced ? { provider: session.provider, external_ai_consent: consent } : {}) }),
     });
@@ -76,13 +76,13 @@ export default function Home() {
     if (session.provider === "gemini" && !consent) { setError("Choose whether to send your CV and this advert to Gemini, or select local review."); return; }
     const current = ++revision.current;
     const abort = new AbortController(); controller.current = abort;
-    const timeout = setTimeout(() => abort.abort(), 120_000);
+    const timeout = setTimeout(() => abort.abort(), 180_000);
     setError(""); setBusy(editedText === undefined ? cvText ? "analysing" : "reading" : "updating");
     try {
       let text = editedText ?? cvText;
       if (text === null) {
         const form = new FormData(); form.append("file", file!);
-        const result = await fetch(`${API_URL}/api/cvs/extract`, { method: "POST", body: form, signal: abort.signal, cache: "no-store" });
+        const result = await apiFetch(`${API_URL}/api/cvs/extract`, { method: "POST", body: form, signal: abort.signal, cache: "no-store" });
         const data = await readResponse(result);
         if (data === null || typeof data !== "object" || !("extracted_text" in data) || typeof data.extracted_text !== "string" || !data.extracted_text.trim()) {
           throw new Error("The review service returned an unexpected response. Please try again.");
@@ -179,8 +179,8 @@ export default function Home() {
 
       {busy && <div role="status" className="loading-note"><span className="spinner" aria-hidden="true" />{busy === "updating" ? "Updating your review…" : busy === "reading" ? "Reading your CV…" : "Finding useful changes for this role…"}<button type="button" className="text-button" onClick={cancel}>Cancel</button></div>}
       {error && <div role="alert" className="error-message">{error}</div>}
-      {response && cvText !== null && <><div ref={reviewHeading} tabIndex={-1} className="review-result"><CVReview key={reviewVersion} text={cvText} filename={file?.name ?? (sampleMode ? "Sample CV" : session.filename) ?? "Your CV"} response={response} baselineScore={baselineScore} updating={!!busy} onReplace={replace} onUndo={undoEdit} canUndo={DEMO_MODE || sampleMode ? demoHistory.length > 0 : history.length > 0} /></div><div className="workspace-job-toggle"><div><h2>Find your next opportunity</h2><p>Explore public job boards with your skills and sponsorship needs in mind.</p></div><button className="primary-button" type="button" onClick={() => setShowJobs(value => !value)}>{showJobs ? "Hide jobs" : "Find matching jobs"}</button></div>{showJobs && <JobFinder key={reviewVersion} cvText={DEMO_MODE || sampleMode ? "" : cvText} onSelect={DEMO_MODE || sampleMode ? undefined : selected => { invalidate(); setDescription(selected); setShowJobs(false); if (session.provider === "local") void runReview(undefined, false, selected); }}/>}</>}
-      <footer className="workspace-footer"><p>Your experience, in your own words. Only add what is true.</p><p>Development demo · Use synthetic CVs only</p></footer>
+      {response && cvText !== null && <><div ref={reviewHeading} tabIndex={-1} className="review-result"><CVReview key={reviewVersion} text={cvText} filename={file?.name ?? (sampleMode ? "Sample CV" : session.filename) ?? "Your CV"} response={response} onUpdateCV={() => { setEditingInputs(true); requestAnimationFrame(() => document.querySelector(".input-summary")?.scrollIntoView({ block: "start" })); }} baselineScore={baselineScore} updating={!!busy} onReplace={replace} onUndo={undoEdit} canUndo={DEMO_MODE || sampleMode ? demoHistory.length > 0 : history.length > 0} /></div><div className="workspace-job-toggle"><div><h2>Find your next opportunity</h2><p>Explore public job boards with your skills and sponsorship needs in mind.</p></div><button className="primary-button" type="button" onClick={() => setShowJobs(value => !value)}>{showJobs ? "Hide jobs" : "Find matching jobs"}</button></div>{showJobs && <JobFinder key={reviewVersion} cvText={DEMO_MODE || sampleMode ? "" : cvText} onSelect={DEMO_MODE || sampleMode ? undefined : selected => { invalidate(); setDescription(selected); setShowJobs(false); if (session.provider === "local") void runReview(undefined, false, selected); }}/>}</>}
+      <footer className="workspace-footer"><p>Your experience, in your own words. Only add what is true.</p><p>{HOSTED_MODE ? "Private demo" : "Development demo"} · Use synthetic CVs while testing</p></footer>
     </main>
   </div>;
 }

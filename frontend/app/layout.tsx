@@ -6,6 +6,7 @@ import "./showcase.css";
 import AppShell from "./components/app-shell";
 import { CVSessionProvider } from "./cv-session";
 import "./evidence.css";
+import HostedAccess from "./components/hosted-access";
 
 export const metadata: Metadata = {
   title: "CareerPilot AI | Your next move, clearer",
@@ -13,5 +14,5 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body><CVSessionProvider><AppShell>{children}</AppShell></CVSessionProvider></body></html>;
+  return <html lang="en"><body><CVSessionProvider><HostedAccess><AppShell>{children}</AppShell></HostedAccess></CVSessionProvider></body></html>;
 }

@@ -2,13 +2,16 @@
 import json
 import os
 import re
+import time
+import random
 from threading import Lock
 
 import httpx
 from pydantic import BaseModel, Field, SecretStr
 
-MODEL = os.getenv('GEMINI_MODEL', 'gemini-3.8-flash')
-ENDPOINT = 'https://generativelanguage.googleapis.com/v1/interactions'
+MODELS = ('gemini-3.5-flash-lite', 'gemini-3.7-flash', 'gemini-3.8-flash')
+MODEL = os.getenv('GEMINI_MODEL', MODELS[0])
+ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent'
 _key: SecretStr | None = None
 _verified = False
 _lock = Lock()
@@ -64,7 +67,7 @@ AIReview.model_rebuild()
 def status() -> dict:
     configured = _key is not None or bool(os.getenv('GEMINI_API_KEY') and not _ignore_environment)
     return {'provider': 'gemini', 'configured': configured, 'verified': _verified,
-            'model': MODEL, 'last_error': _last_connection_error,
+            'model': MODEL, 'models': list(MODELS), 'last_error': _last_connection_error,
             'storage': 'Backend memory only. Restarting clears keys entered in the connection form.'}
 
 
@@ -128,6 +131,8 @@ def _provider_error(response: httpx.Response) -> GeminiUnavailable:
         return failure('API_ROUTE_UNAVAILABLE', 'Google could not find the configured API endpoint. The backend integration needs checking; replacing your key may not fix this.')
     if status_code == 400 and any(term in message for term in ('thinking_level', 'thinking level')):
         return failure('THINKING_CONFIG', 'Google rejected the app\'s reasoning setting for this model. The backend configuration needs correcting; your key does not need replacing for this error.')
+    if status_code == 400 and any(term in message for term in ('schema', 'response_format', 'responsejsonschema')):
+        return failure('SCHEMA_REJECTED', 'Google rejected the app\'s review format. This needs an app configuration fix, not a replacement API key.')
     if status_code in {400, 416, 422}:
         return failure('REQUEST_REJECTED', 'Google rejected the connection request parameters. This may need an app configuration fix; replacing your key may not help. Share this error code, never your key.')
     if status_code >= 500:
@@ -135,17 +140,41 @@ def _provider_error(response: httpx.Response) -> GeminiUnavailable:
     return failure('PROVIDER_ERROR', 'Google could not complete this request. Share the connection error code, never your key; local review is still available.')
 
 
-def _request(key: str, prompt: str, schema: dict | None = None) -> str:
-    payload = {'model': MODEL, 'input': prompt, 'store': False,
-               # 3.8 Flash rejects "minimal". The token limit includes thinking,
-               # so a 32-token probe can finish without producing even READY.
-               'generation_config': {'max_output_tokens': 8192 if schema else 1024, 'thinking_level': 'low'}}
+def transport_schema(schema: dict) -> dict:
+    """Small inline schema for constrained decoding; Pydantic enforces limits locally."""
+    definitions = schema.get('$defs', {})
+    allowed = {'type', 'properties', 'items', 'required', 'anyOf', 'enum', 'minimum', 'maximum'}
+    def inline(value):
+        if isinstance(value, list):
+            return [inline(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        if '$ref' in value:
+            return inline(definitions[value['$ref'].rsplit('/', 1)[-1]])
+        return {name: {field: inline(child) for field, child in item.items()} if name == 'properties' else inline(item)
+                for name, item in value.items() if name in allowed}
+    return inline(schema)
+
+
+def _request(key: str, prompt: str, schema: dict | None = None, *, model: str | None = None, probe: bool = False) -> str:
+    selected_model = model or MODEL
+    if selected_model not in MODELS:
+        raise GeminiUnavailable('Choose one of the supported Gemini models.', 'MODEL_UNSUPPORTED')
+    payload = {'contents': [{'role': 'user', 'parts': [{'text': prompt}]}], 'store': False,
+               'generationConfig': {'maxOutputTokens': 1024 if probe or not schema else 8192,
+                                    'thinkingConfig': {'thinkingLevel': 'LOW'}}}
     if schema:
-        payload['response_format'] = {'type': 'text', 'mime_type': 'application/json', 'schema': schema}
+        payload['generationConfig'].update(responseMimeType='application/json', responseJsonSchema=transport_schema(schema))
     try:
         # No redirects, URL parameters, SDK telemetry or key/document logging.
-        with httpx.Client(timeout=65, follow_redirects=False) as client:
-            response = client.post(ENDPOINT, headers={'x-goog-api-key': key}, json=payload)
+        with httpx.Client(timeout=httpx.Timeout(75 if schema else 30, connect=10), follow_redirects=False) as client:
+            for attempt in range(2):
+                response = client.post(ENDPOINT.format(model=selected_model), headers={'x-goog-api-key': key}, json=payload)
+                # One bounded retry, only for explicit transient service failures.
+                # Never resend after a timeout: generation may already be running.
+                if response.status_code not in {500, 502, 503, 504} or attempt == 1:
+                    break
+                time.sleep(1 + random.uniform(0, 0.4))
         if not response.is_success:
             raise _provider_error(response)
         if len(response.content) > 512_000:
@@ -153,22 +182,13 @@ def _request(key: str, prompt: str, schema: dict | None = None) -> str:
         result = response.json()
         if not isinstance(result, dict):
             raise GeminiUnavailable('Gemini returned an unexpected response. Nothing was applied.')
-        if result.get('status') not in {None, 'completed'}:
+        candidates = result.get('candidates')
+        candidate = candidates[0] if isinstance(candidates, list) and candidates and isinstance(candidates[0], dict) else {}
+        if candidate.get('finishReason') not in {None, 'STOP'}:
             raise GeminiUnavailable('Gemini did not finish its response. Nothing was applied. Retry or use local review.', 'INCOMPLETE_RESPONSE')
-        if isinstance(result.get('output_text'), str):
-            text = result['output_text'].strip()
-            if text:
-                return text
-        # REST interaction output is delivered in text content blocks.
-        blocks = result.get('outputs', [])
-        def text_blocks(blocks):
-            return ''.join(block['text'] for block in blocks if isinstance(block, dict) and block.get('type') == 'text' and isinstance(block.get('text'), str)) if isinstance(blocks, list) else ''
-        text = text_blocks(blocks)
-        if not text:
-            steps = result.get('steps')
-            for step in steps if isinstance(steps, list) else []:
-                if isinstance(step, dict) and step.get('type') == 'model_output':
-                    text += text_blocks(step.get('content'))
+        content = candidate.get('content')
+        blocks = content.get('parts') if isinstance(content, dict) else None
+        text = ''.join(block['text'] for block in blocks if isinstance(block, dict) and not block.get('thought') and isinstance(block.get('text'), str)) if isinstance(blocks, list) else ''
         if not text.strip():
             raise GeminiUnavailable('Gemini returned no review text. Try local review or retry later.')
         return text
@@ -180,15 +200,24 @@ def _request(key: str, prompt: str, schema: dict | None = None) -> str:
         raise GeminiUnavailable('Cannot reach Gemini or read its response. Your local review is still available.') from None
 
 
-def connect(key: SecretStr) -> dict:
-    global _key, _verified, _ignore_environment, _last_connection_error
+def connect(key: SecretStr, model: str | None = None) -> dict:
+    global _key, _verified, _ignore_environment, _last_connection_error, MODEL
     # The connection check contains no CV, job advert or user identity.
     key = SecretStr(key.get_secret_value().strip())
     try:
+        selected_model = model or MODEL
+        if selected_model not in MODELS:
+            raise GeminiUnavailable('Choose one of the supported Gemini models.', 'MODEL_UNSUPPORTED')
         secret = key.get_secret_value()
         if not 12 <= len(secret) <= 300 or not secret.isascii() or any(character.isspace() for character in secret):
             raise GeminiUnavailable('Copy the full Gemini API key without quotes, line breaks or spaces, then try again.', 'KEY_FORMAT')
-        _request(secret, 'Connection check only. Reply with READY. Do not include any other text.')
+        reply = _request(secret, 'Connection check only. Return JSON with empty edits, requirements and skills arrays.', AIReview.model_json_schema(), model=selected_model, probe=True)
+        try:
+            check = AIReview.model_validate_json(reply)
+            if check.edits or check.requirements or check.skills:
+                raise ValueError('Non-empty synthetic check')
+        except ValueError:
+            raise GeminiUnavailable('Gemini did not return the expected review format. The connection has not been verified.', 'SCHEMA_CHECK_FAILED') from None
     except GeminiUnavailable as exc:
         with _lock:
             _last_connection_error = exc.public_error()
@@ -198,6 +227,7 @@ def connect(key: SecretStr) -> dict:
         _verified = True
         _ignore_environment = False
         _last_connection_error = None
+        MODEL = selected_model
     return status()
 
 

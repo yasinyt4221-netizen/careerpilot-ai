@@ -17,6 +17,8 @@ def connection_state(monkeypatch):
     monkeypatch.setattr(gemini_review, '_ignore_environment', False)
     monkeypatch.setattr(gemini_review, '_last_connection_error', None)
     monkeypatch.delenv('GEMINI_API_KEY', raising=False)
+    monkeypatch.setattr(gemini_review.time, 'sleep', lambda _: None)
+    monkeypatch.setattr(gemini_review, 'MODEL', 'gemini-3.5-flash-lite')
 
 
 def mock_google(monkeypatch, handler):
@@ -66,11 +68,14 @@ def test_connection_trims_pasted_whitespace_and_clears_previous_error(monkeypatc
     def google(request):
         assert request.headers['x-goog-api-key'] == 'synthetic-replacement-key'
         body = json.loads(request.content)
-        assert body['store'] is False and 'CV' not in body['input']
+        assert body['store'] is False and 'CV' not in body['contents'][0]['parts'][0]['text']
         # Guard the real 3.8 incompatibility: minimal is rejected, and thought
         # tokens share the output budget, so 32 is insufficient for the probe.
-        assert body['generation_config'] == {'thinking_level': 'low', 'max_output_tokens': 1024}
-        return httpx.Response(200, json={'status': 'completed', 'steps': [{'type': 'model_output', 'content': [{'type': 'text', 'text': 'READY'}]}]})
+        assert body['generationConfig']['thinkingConfig'] == {'thinkingLevel': 'LOW'}
+        assert body['generationConfig']['maxOutputTokens'] == 1024
+        assert body['generationConfig']['responseMimeType'] == 'application/json'
+        assert '$defs' not in body['generationConfig']['responseJsonSchema']
+        return httpx.Response(200, json={'candidates': [{'finishReason': 'STOP', 'content': {'parts': [{'text': '{"edits":[],"requirements":[],"skills":[]}' }]}}]})
     mock_google(monkeypatch, google)
     status = gemini_review.connect(SecretStr('  synthetic-replacement-key\r\n'))
     assert status['configured'] and status['verified'] and status['last_error'] is None
@@ -98,6 +103,8 @@ def test_network_failures_do_not_echo_request_or_exception(monkeypatch, kind, co
 
 
 @pytest.mark.parametrize('body', [
+    {'candidates': [{'finishReason': 'MAX_TOKENS', 'content': {'parts': [{'text': '{"edits":[],"requirements":[]}' }]}}]},
+    {'candidates': [{'finishReason': 'SAFETY', 'content': {'parts': [{'text': '{"edits":[],"requirements":[]}' }]}}]},
     {'status': 'incomplete', 'output_text': 'READY'},
     {'status': 'failed', 'steps': []},
     {'status': 'completed', 'steps': None},
@@ -126,3 +133,50 @@ def test_malformed_provider_errors_still_return_a_safe_diagnosis(monkeypatch, bo
     mock_google(monkeypatch, lambda _: httpx.Response(400, content=body))
     response = TestClient(app).post('/api/ai/connect', json={'api_key': 'synthetic-test-key'})
     assert response.status_code == 400 and response.json()['code'] == 'REQUEST_REJECTED'
+
+
+def test_transient_failure_retries_once_and_preserves_the_stateless_request(monkeypatch):
+    sent = []
+    def google(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(503, json={'error': {'code': 'service_unavailable'}}) if len(sent) == 1 else httpx.Response(200, json={'candidates': [{'finishReason': 'STOP', 'content': {'parts': [{'text': '{"edits":[],"requirements":[],"skills":[]}' }]}}]})
+    mock_google(monkeypatch, google)
+    assert gemini_review.connect(SecretStr('synthetic-test-key'), 'gemini-3.7-flash')['verified']
+    assert len(sent) == 2 and sent[0] == sent[1] and sent[0]['store'] is False
+    assert gemini_review.status()['model'] == 'gemini-3.7-flash'
+
+
+@pytest.mark.parametrize('code', [400, 401, 402, 403, 429])
+def test_key_billing_and_quota_errors_are_never_automatically_retried(monkeypatch, code):
+    sent = []
+    def google(request):
+        sent.append(request)
+        return httpx.Response(code, json={'error': {'code': 'synthetic'}})
+    mock_google(monkeypatch, google)
+    with pytest.raises(gemini_review.GeminiUnavailable):
+        gemini_review.connect(SecretStr('synthetic-test-key'))
+    assert len(sent) == 1
+
+
+def test_unsupported_model_is_not_sent_to_google(monkeypatch):
+    mock_google(monkeypatch, lambda _: pytest.fail('Unsupported model must not be sent'))
+    with pytest.raises(gemini_review.GeminiUnavailable) as caught:
+        gemini_review.connect(SecretStr('synthetic-test-key'), 'invented-model')
+    assert caught.value.code == 'MODEL_UNSUPPORTED'
+
+
+def test_schema_normalization_keeps_fields_and_validation_stays_strict():
+    wire = gemini_review.transport_schema(gemini_review.AIReview.model_json_schema())
+    encoded = json.dumps(wire)
+    assert '$ref' not in encoded and '$defs' not in encoded and 'maxLength' not in encoded
+    assert set(wire['properties']) == {'edits', 'requirements', 'skills'}
+    assert 'excerpt' in wire['properties']['edits']['items']['required']
+    with pytest.raises(ValueError):
+        gemini_review.AIEdit(excerpt='a' * 701, action='replace', replacement=None, reason='', question=None, job_source=None)
+
+
+def test_connection_cannot_succeed_with_text_only_when_structured_review_is_broken(monkeypatch):
+    mock_google(monkeypatch, lambda _: httpx.Response(200, json={'candidates': [{'finishReason': 'STOP', 'content': {'parts': [{'text': 'READY'}]}}]}))
+    with pytest.raises(gemini_review.GeminiUnavailable) as caught:
+        gemini_review.connect(SecretStr('synthetic-test-key'))
+    assert caught.value.code == 'SCHEMA_CHECK_FAILED' and not gemini_review.status()['verified']

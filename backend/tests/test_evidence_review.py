@@ -115,12 +115,12 @@ def test_connection_check_is_stateless_and_never_returns_the_key(monkeypatch, cl
     def handler(request):
         sent.append(json.loads(request.content))
         assert request.headers['x-goog-api-key'] == secret
-        return httpx.Response(200, json={'status': 'completed', 'steps': [{'type': 'model_output', 'content': [{'type': 'text', 'text': 'READY'}]}]})
+        return httpx.Response(200, json={'candidates': [{'finishReason': 'STOP', 'content': {'parts': [{'text': '{"edits":[],"requirements":[],"skills":[]}' }]}}]})
     monkeypatch.setattr(gemini_review.httpx, 'Client', lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
     status = gemini_review.connect(SecretStr(secret))
     assert status['configured'] and status['verified']
     assert secret not in json.dumps(status)
-    assert sent[0]['store'] is False and 'CV' not in sent[0]['input']
+    assert sent[0]['store'] is False and 'CV' not in sent[0]['contents'][0]['parts'][0]['text']
     gemini_review.disconnect()
     assert not gemini_review.status()['configured']
 
@@ -160,3 +160,10 @@ def test_quota_and_bad_responses_are_useful_and_do_not_echo_keys(monkeypatch, cl
     monkeypatch.setattr(gemini_review.httpx, 'Client', lambda **kwargs: original_client(transport=httpx.MockTransport(lambda _: httpx.Response(200, json=[])), **kwargs))
     with pytest.raises(gemini_review.GeminiUnavailable, match='unexpected response'):
         gemini_review.connect(SecretStr('synthetic-test-key'))
+
+
+def test_gemini_cannot_turn_a_listed_skill_into_demonstrated_work(monkeypatch):
+    result = gemini_review.AIReview(edits=[], skills=[], requirements=[gemini_review.AIRequirement(label='Python', source='Python programming experience', priority='required', status='demonstrated', evidence='Python', reason='Synthetic model overclaim')])
+    monkeypatch.setattr(gemini_review, 'review', lambda *_: result)
+    report = review_documents('Skills\nPython', 'Developer\nRequired:\nPython programming experience', 'gemini')
+    assert report.matches[0].evidence_status == 'mentioned'

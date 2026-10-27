@@ -4,6 +4,17 @@ The applicant interface replaces `/100` scores with actual requirement checks.
 Legacy numerical fields remain in the original comparison API for compatibility;
 they are not interview probabilities and are no longer shown in the applicant UI.
 
+## Visual requirement badges
+
+The role review and CV-ranked job cards include **What they're looking for**.
+Each badge shows found, listed only, related evidence or not shown in this CV.
+Actions that establish a capability count even without its keyword. A skill
+name alone stays listed, including in Gemini-assisted reports. Selecting a badge
+opens its exact advert source, CV passage and factual next step. Missing skills
+open the relevant recommendation, including when multiple skills share one
+advert sentence. Update CV opens the existing input controls. Long lists use
+progressive disclosure and badges wrap on phones. Status text accompanies icons.
+
 ## CV first
 
 `POST /api/cvs/review` accepts CV text and an optional advert. Without an advert,
@@ -56,14 +67,14 @@ links/notes continue to use the existing separate browser board.
 ## Optional Gemini
 
 The local `/connections/` page accepts a Gemini API key in a password input and
-sends it only to the local backend. A synthetic prompt verifies access. The key
+sends it only to the local backend. A synthetic JSON review verifies the same schema used by real reviews. The key
 stays in backend process memory, is not returned to the browser or written to
 files/logs, and is cleared by disconnect/restart. Public-demo mode rejects key
 configuration. Requests from other browser origins are rejected.
 
 Gemini document review requires `provider=gemini` and `external_ai_consent=true`.
 The frontend requires an explicit checkbox. Local review remains available.
-The REST integration uses `store=false`, bounded output, structured JSON,
+The generateContent REST integration uses `store=false`, bounded output, structured JSON,
 verbatim source validation and conservative rewrite guards. New metrics and
 unproven tool names are not automatically inserted. Unclear edits become questions.
 Google's own retention/training and billing terms still apply; `store=false` is
@@ -87,16 +98,18 @@ whitespace is trimmed; embedded whitespace is rejected before a network call.
 Exposed keys must be replaced in AI Studio; enter replacements only in the
 local form. See Google's [error reference](https://ai.google.dev/gemini-api/docs/api-errors).
 
-The synthetic check uses `thinking_level=low` and a 1,024-token ceiling including
-thought tokens. Gemini 3.8 Flash rejects `minimal`; a 32-token budget can also
-truncate before any reply. The transport test guards these settings against
+The synthetic check uses `thinkingConfig.thinkingLevel=LOW` and a 1,024-token ceiling including
+thought tokens. Both connection and review use the same inline JSON schema;
+length and item limits remain enforced by Pydantic after generation. The default
+model is Gemini 3.5 Flash-Lite, with local choices for 3.7/3.8 Flash. A transient
+500/502/503/504 gets at most one retry; key, billing, quota and timeout errors do not. The transport test guards these settings against
 regression. See the [model reference](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash)
 and [thinking token limits](https://ai.google.dev/gemini-api/docs/thought-signatures).
 
 Official references: [API keys](https://ai.google.dev/gemini-api/docs/api-key),
 [pricing](https://ai.google.dev/gemini-api/docs/pricing),
 [structured output](https://ai.google.dev/gemini-api/docs/structured-output),
-[Interactions REST](https://ai.google.dev/api/interactions-api-v1).
+[generateContent REST](https://ai.google.dev/api/generate-content).
 
 ## Student platforms
 
@@ -109,8 +122,8 @@ need approved access; Handshake restricts API access to career-services partners
 
 ## Verification on 27 October 2026
 
-The backend suite passed 208 tests with the cached local model enabled. The
-browser suite passed 46 tests, including CV-only analysis, exact deletion/undo,
+The backend suite passed 231 tests with the cached local model enabled. The
+browser suite passed 50 tests, including CV-only analysis, exact deletion/undo,
 factual line building, shared CV-to-job flow, evidence instead of arbitrary scores,
 Gemini key non-persistence, cloud consent and mobile platform links. ESLint,
 TypeScript and the local production build passed. Screenshots were inspected.
@@ -120,7 +133,7 @@ passed the real synthetic inference check (`configured=true`, `verified=true`).
 However, three live synthetic CV reviews produced one provider timeout and two
 Google HTTP 503 errors. A completed live Gemini CV review remains unverified.
 The key is kept connected; no restart or key extraction was used for these tests.
-Provider error/retry cases also have automated tests.
+Those attempts preceded the compact generateContent transport. Its live structured review remains to be verified. Provider error/retry cases also have automated tests. The hosted frontend export passed access/session/header, lock, secret non-persistence and mobile checks with synthetic responses.
 
 A synthetic student-CV live probe checked 2,123 public listings across twelve
 available feeds. After filtering it compared seventeen relevant adverts and

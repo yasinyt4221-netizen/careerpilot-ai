@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { API_URL, DEMO_MODE, publicAsset } from "../api-config";
+import { apiFetch, API_URL, DEMO_MODE, publicAsset } from "../api-config";
 import { readResponse } from "../review-types";
 import { Icon } from "./icons";
 import Link from "next/link";
 import { addApplication, useApplications } from "../application-store";
+import SkillRequirements, { evidenceState } from "./skill-requirements";
 
 type Job = {
   id: string; company: string; title: string; location: string; url: string; provider: string; description: string;
@@ -82,7 +83,7 @@ export default function JobFinder({ cvText = "", onSelect }: { cvText?: string; 
         });
         data = { ...available, jobs: jobs.slice(0, 25), total_matches: jobs.length, more_platforms: platformLinks(query, country) };
       } else {
-        const response = await fetch(`${API_URL}/api/jobs/search`, { method: "POST", headers: { "Content-Type": "application/json" }, signal: abort.signal, body: JSON.stringify({ query: query.trim(), country, visa_category: visa, sponsorship_need: need, hide_no_sponsorship: hideNo, cv_text: cvText, career_level: careerLevel, limit: 25 }) });
+        const response = await apiFetch(`${API_URL}/api/jobs/search`, { method: "POST", headers: { "Content-Type": "application/json" }, signal: abort.signal, body: JSON.stringify({ query: query.trim(), country, visa_category: visa, sponsorship_need: need, hide_no_sponsorship: hideNo, cv_text: cvText, career_level: careerLevel, limit: 25 }) });
         data = await readResponse(response);
       }
       if (request.current !== abort) return;
@@ -107,7 +108,7 @@ export default function JobFinder({ cvText = "", onSelect }: { cvText?: string; 
     {results && <><div className="job-results-heading"><h2>{results.total_matches ? `${results.total_matches} roles to explore` : "No roles found in these sources"}</h2><span>Checked {new Date(results.searched_at).toLocaleString("en-GB", { timeZone: "Europe/London", dateStyle: "medium", timeStyle: "short" })}</span></div>
       {!results.jobs.length && <p className="quiet-message">Try a broader role or another country. The links below search more platforms directly.</p>}
       <div className="job-results">{results.jobs.map((job, index) => <article className="job-result-card" key={job.id}><div className="job-company-avatar" aria-hidden="true">{job.company.slice(0, 1)}</div><div className="job-result-main"><div className="job-result-title"><div><span>{job.company}</span><h3>{job.title}</h3></div>{cvText && job.fit_label && <span className="job-fit-label">{job.fit_label}<small>{job.core_found} of {job.core_total} core skills supported</small></span>}</div><p className="job-location"><Icon name="location" size={14}/>{job.location || "Location not specified"}<span>{job.provider}</span></p><span className={`sponsorship-pill ${job.sponsorship_status === "not_offered" ? "no" : job.sponsor_entities.length || job.sponsorship_status === "offered" ? "evidence" : "unknown"}`}><Icon name="shield" size={13}/>{need === "not_needed" ? "Confirm your work permission" : job.sponsorship_label}</span>
-        {job.matched_skills.length > 0 && <div className="job-skill-tags">{job.matched_skills.slice(0, 4).map(skill => <span key={skill}><Icon name="check" size={11}/>{skill}</span>)}</div>}
+        {cvText && job.skill_evidence?.length ? <SkillRequirements compact checks={job.skill_evidence.map((item, skillIndex) => ({ id: `${job.id}-${skillIndex}`, label: item.skill, state: evidenceState(item.status, item.status, item.cv_excerpt), source: item.job_excerpt, evidence: item.cv_excerpt, line: item.line, priority: item.priority }))} onReview={onSelect ? () => onSelect(job.description) : undefined}/> : job.matched_skills.length > 0 && <div className="job-skill-tags">{job.matched_skills.slice(0, 4).map(skill => <span key={skill}><Icon name="check" size={11}/>{skill}</span>)}</div>}
         <div className="job-result-actions"><a href={job.url} target="_blank" rel="noopener noreferrer">{job.provider === "remotive" ? "View on Remotive" : "Open job advert"} <Icon name="arrow" size={14}/></a><button type="button" className={`save-job-button ${savedJobs.some(saved => saved.url === job.url) ? "saved" : ""}`} aria-label={`Save ${job.title} at ${job.company}`} disabled={savedJobs.some(saved => saved.url === job.url)} onClick={() => saveJob(job)}><Icon name={savedJobs.some(saved => saved.url === job.url) ? "check" : "bookmark"} size={14}/>{savedJobs.some(saved => saved.url === job.url) ? "Saved" : "Save job"}</button><button className="text-button" type="button" aria-expanded={openJob === job.id} onClick={() => setOpenJob(openJob === job.id ? null : job.id)}>Why this role?</button>{onSelect && <button type="button" className="text-button" onClick={() => onSelect(job.description)}>Show exact CV changes</button>}</div>
         {openJob === job.id && <div className="job-detail"><ul>{job.why.map(text => <li key={text}>{text}</li>)}</ul>{job.skill_evidence && <div className="job-evidence-list">{job.skill_evidence.map(item => <div key={item.skill}><strong>{item.skill}<span>{item.status === "not_found" ? "Not found" : item.status === "mentioned" ? "Listed only" : "Work evidence"}</span></strong><p><b>Job:</b> {item.job_excerpt}</p>{item.cv_excerpt ? <blockquote>CV line {item.line}: {item.cv_excerpt}</blockquote> : <p>No supporting CV passage found.</p>}</div>)}</div>}{job.hard_checks && job.hard_checks.length > 0 && <div className="role-barriers"><strong>Other requirements to confirm</strong><ul>{job.hard_checks.map(check => <li key={check}>{check}</li>)}</ul></div>}{job.sponsorship_quote && <blockquote>{job.sponsorship_quote}</blockquote>}{job.sponsor_entities.map(entity => <p key={entity.legal_name}><strong>{entity.legal_name}</strong> · {entity.route}<br/>{job.sponsor_source && <a href={job.sponsor_source} target="_blank" rel="noopener noreferrer">Official register · {job.sponsor_source_date ?? "date unavailable"}</a>}</p>)}<p><strong>Before applying:</strong> {job.next_action}</p>{index === 0 && <p className="job-shortlist-note">Ranked from the sources checked, not a guarantee that this is the best employer or that you will get an interview.</p>}</div>}
       </div></article>)}</div>

@@ -15,6 +15,16 @@ Check the workflow status before assuming a particular commit is deployed.
 Personal document upload is disabled in that preview. Full extraction and
 reanalysis run locally using the setup below.
 
+The private hosted Gemini workspace is prepared for a separate Render backend.
+See [hosted deployment](docs/hosted-gemini.md). Its access-code login protects
+the owner's API key and document endpoints. Enable it only after the real backend
+is configured and verified; pushing source alone does not launch FastAPI.
+
+Job comparisons now show **What they're looking for** badges: found in your CV,
+listed without an example, related evidence, or not shown. Select a badge for
+the exact source, supporting CV passage and next action. Missing evidence is
+not a claim that you lack the skill. Job recommendations use the same badges.
+
 ## Show it to a friend
 
 Open the [demo workspace](https://yasinyt4221-netizen.github.io/careerpilot-ai/dashboard/).

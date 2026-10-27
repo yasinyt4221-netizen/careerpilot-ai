@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useRef, useState } from "react";
 import { Icon, Rocket } from "./icons";
 import { useApplications } from "../application-store";
-import { DEMO_MODE, publicAsset } from "../api-config";
+import { HOSTED_MODE, DEMO_MODE, publicAsset } from "../api-config";
 
 const navigation = [
   { href: "/dashboard/", label: "Overview", icon: "grid" },
@@ -37,7 +37,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <div className="sidebar-guide"><span className="guide-icon"><Icon name="spark" size={21}/></span><strong>A little clarity goes a long way.</strong><p>Take a quick tour, then make it yours.</p><button type="button" onClick={() => { setStep(0); dialog.current?.showModal(); }}>Show me around <Icon name="arrow" size={15}/></button></div>
       <div className="sidebar-bottom"><span className="profile-avatar">CP</span><div><strong>Your workspace</strong><small>Stored on this browser</small></div><Link href="/connections/" aria-label="AI and platform connections"><Icon name="help" size={20}/></Link></div>
     </aside>
-    <div className="app-main"><header className="app-topbar"><div><span>Workspace</span><span className="breadcrumb-divider">/</span><strong>{current?.label ?? (pathname.startsWith("/connections") ? "Connections" : "Help & privacy")}</strong></div><div className="topbar-actions"><span className="preview-tag"><span/>{DEMO_MODE ? "Showcase demo" : "Local workspace"}</span><button type="button" className="icon-button" aria-label="Open quick tour" onClick={() => { setStep(0); dialog.current?.showModal(); }}><Icon name="help"/></button><button className="share-demo-button" aria-label="Share demo" type="button" onClick={share}><Icon name="external" size={14}/><span>Share demo</span></button></div></header>
+    <div className="app-main"><header className="app-topbar"><div><span>Workspace</span><span className="breadcrumb-divider">/</span><strong>{current?.label ?? (pathname.startsWith("/connections") ? "Connections" : "Help & privacy")}</strong></div><div className="topbar-actions"><span className="preview-tag"><span/>{DEMO_MODE ? "Showcase demo" : HOSTED_MODE ? "Private workspace" : "Local workspace"}</span><button type="button" className="icon-button" aria-label="Open quick tour" onClick={() => { setStep(0); dialog.current?.showModal(); }}><Icon name="help"/></button>{HOSTED_MODE && <button type="button" className="text-button" onClick={() => window.dispatchEvent(new Event("careerpilot-access-expired"))}>Lock workspace</button>}<button className="share-demo-button" aria-label="Share demo" type="button" onClick={share}><Icon name="external" size={14}/><span>Share demo</span></button></div></header>
       {shareMessage && <div className="share-notice" role="status">{shareMessage}<button className="icon-button" type="button" aria-label="Dismiss share message" onClick={() => setShareMessage("")}><Icon name="close" size={14}/></button></div>}
       <div id="app-content" className="app-page-content">{children}</div><footer className="app-footer"><span>Built around your next opportunity.</span><Link href="/help/">Help & browser data</Link></footer>
     </div>

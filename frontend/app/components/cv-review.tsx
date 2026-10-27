@@ -14,9 +14,10 @@ type Props = {
   onUndo: () => Promise<void>;
   canUndo: boolean;
   baselineScore: number | null;
+  onUpdateCV?: () => void;
 };
 
-export default function CVReview({ text, filename, response, updating, onReplace, onUndo, canUndo }: Props) {
+export default function CVReview({ text, filename, response, updating, onReplace, onUndo, canUndo, onUpdateCV }: Props) {
   const plan = response.review;
   const [selected, setSelected] = useState(plan.changes[0]?.id ?? plan.gaps[0]?.id ?? "");
   const [editing, setEditing] = useState(false);
@@ -79,7 +80,12 @@ export default function CVReview({ text, filename, response, updating, onReplace
   }
 
   return <section className="cv-review" aria-label="CV review">
-    <EvidenceSummary response={response}/>
+    <EvidenceSummary response={response} onUpdateCV={onUpdateCV} onRequirement={id => {
+      const requirement = response.matches?.find(match => match.requirement.id === id)?.requirement;
+      const item = requirement && (items.find(candidate => candidate.title.toLowerCase().includes(requirement.label.toLowerCase())) ?? items.find(candidate => candidate.job_requirement === requirement.source));
+      if (item) select(item, true);
+      else document.querySelector(".suggestions-panel")?.scrollIntoView({ block: "start" });
+    }}/>
     <div className="review-heading"><div><p className="eyebrow">YOUR NEXT EDITS</p><h2>Make these changes to your CV</h2><p>{plan.changes.length ? `${plan.changes.length} suggested ${plan.changes.length === 1 ? "change" : "changes"}. Select a highlight to see what to do.` : "No highlighted changes found in the checks we ran."}</p></div><span className="review-ready">Review ready</span></div>
     {plan.notices.map((notice, index) => <p className="review-notice" key={index}>{notice}</p>)}
     <div className="review-columns">

@@ -8,6 +8,7 @@ export function Icon({ name, size = 20, style }: { name: string; size?: number; 
   const paths: Record<string, React.ReactNode> = {
     arrow: <path d="M4 12h15m-6-6 6 6-6 6" />,
     check: <path d="m5 12 4 4L19 6" />,
+    missing: <><circle cx="12" cy="12" r="9"/><path d="m6 18 12-12"/></>,
     file: <><path d="M14 3H5v18h14V8l-5-5Z"/><path d="M14 3v6h5M8 13h8M8 17h6"/></>,
     list: <><path d="M9 6h12M9 12h12M9 18h12"/><path d="M3 6h1M3 12h1M3 18h1"/></>,
     chart: <><path d="M4 20V11h4v9M10 20V6h4v14M16 20V3h4v17"/></>,

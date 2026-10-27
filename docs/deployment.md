@@ -59,17 +59,14 @@ The UI links to [official Skilled Worker guidance](https://www.gov.uk/skilled-wo
 
 ## Separate backend hosting
 
-`render.yaml` prepares a free FastAPI service. It has not been deployed by the
-local setup. Connect the repository to Render and review its build logs before
-setting the repository variable `CAREERPILOT_API_URL` to its HTTPS URL and
-rerunning the Pages workflow. The blueprint defaults to `PUBLIC_DEMO_ONLY=true`:
-document extraction and personal CV matching are rejected server-side as well
-as disabled in the public frontend. Public job searches can then use live feeds.
-
-Authentication, private storage/RLS, retention/deletion controls, and privacy
-disclosures are required before opening personal CV processing. Do not switch
-off the public-demo guards as a substitute for those controls. No paid AI API
-or secret is required by the current release.
+`render.yaml` now prepares an access-protected private Gemini backend. It has
+not been deployed by the local setup. Follow [hosted Gemini deployment](hosted-gemini.md)
+to configure its private secrets and verify its actual URL before setting
+`CAREERPILOT_API_URL` and `CAREERPILOT_HOSTED=true` in GitHub. The existing Pages
+sample remains enabled until those settings change. Hosted mode requires a
+private access code and signed sessions; it is intended for a friend showcase.
+No database or document persistence is introduced. Per-user accounts and private
+storage/RLS remain necessary before adding persistent personal data for real users.
 
 ## Verification on 27 October 2026
 

@@ -1,28 +1,29 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { API_URL, DEMO_MODE } from "../api-config";
+import { apiFetch, HOSTED_MODE, API_URL, DEMO_MODE } from "../api-config";
 import { readResponse } from "../review-types";
 import { useCVSession } from "../cv-session";
 import { Icon } from "../components/icons";
 
-type Status = { configured: boolean; verified: boolean; model: string };
+type Status = { configured: boolean; verified: boolean; model: string; models?: string[] };
 export default function Connections() {
   const session = useCVSession();
   const [key, setKey] = useState("");
+  const [model, setModel] = useState("gemini-3.5-flash-lite");
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [diagnostic, setDiagnostic] = useState("");
   const request = useRef<AbortController | null>(null);
-  useEffect(() => { if (DEMO_MODE) return; const abort = new AbortController(); fetch(`${API_URL}/api/ai/status`, { signal: abort.signal }).then(readResponse).then(data => setStatus(data as Status)).catch(() => setError("Cannot reach the local backend.")); return () => { abort.abort(); request.current?.abort(); }; }, []);
+  useEffect(() => { if (DEMO_MODE) return; const abort = new AbortController(); apiFetch(`${API_URL}/api/ai/status`, { signal: abort.signal }).then(readResponse).then(data => { const current = data as Status; setStatus(current); if (current.models?.includes(current.model)) setModel(current.model); }).catch(() => setError("Cannot reach the backend.")); return () => { abort.abort(); request.current?.abort(); }; }, []);
   async function connect(event: React.FormEvent) {
     event.preventDefault(); if (busy || DEMO_MODE) return;
     const secret = key.trim(); setKey(""); setBusy(true); setMessage(""); setError(""); setDiagnostic("");
     const abort = new AbortController(); request.current = abort; const timeout = setTimeout(() => abort.abort(), 80_000);
     try {
-      const response = await fetch(`${API_URL}/api/ai/connect`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ api_key: secret }), signal: abort.signal });
+      const response = await apiFetch(`${API_URL}/api/ai/connect`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ api_key: secret, model }), signal: abort.signal });
       if (!response.ok) {
         const data = await response.json().catch(() => null);
         if (typeof data?.code === "string" && /^[A-Z_]{1,40}$/.test(data.code)) {
@@ -41,14 +42,14 @@ export default function Connections() {
     }
     finally { clearTimeout(timeout); setBusy(false); }
   }
-  async function disconnect() { try { const data = await readResponse(await fetch(`${API_URL}/api/ai/disconnect`, { method: "POST" })); setStatus(data as Status); session.setProvider("local"); setMessage("Gemini disconnected. Local review is selected."); } catch { setError("Could not disconnect. Restart the backend to clear a key entered here."); } }
+  async function disconnect() { try { const data = await readResponse(await apiFetch(`${API_URL}/api/ai/disconnect`, { method: "POST" })); setStatus(data as Status); session.setProvider("local"); setMessage("Gemini disconnected. Local review is selected."); } catch { setError("Could not disconnect. Restart the backend to clear a key entered here."); } }
   async function copyPrompt() {
     const prompt = `Review this CV. Identify demonstrated skills from the work and projects, not only keywords. Give exact current lines, proposed replacements grounded only in those lines, and duplicate/generic lines to delete. Ask for missing facts instead of inventing achievements. Do not invent a hiring probability. If a job advert follows, compare every actual requirement with quoted CV evidence.\n\nCV:\n${session.text || "[Paste an anonymised CV here]"}\n\nJOB ADVERT (optional):\n${session.target?.description || "[Paste the advert here for role-specific advice]"}`;
     try { await navigator.clipboard.writeText(prompt); setMessage("Prompt copied locally. Review or anonymise it before pasting into the Gemini app. Nothing was sent automatically."); } catch { setError("Clipboard unavailable. You can enter your CV and these review instructions directly in Gemini."); }
   }
   return <main className="hub-page connections-page"><div className="page-heading"><div><p className="eyebrow">YOUR TOOLS, CLEARLY CONNECTED</p><h1>Choose how your CV is reviewed.</h1><p>Local by default. Gemini only when you choose to send a document.</p></div><Link className="secondary-button" href="/workspace/">Back to CV review <Icon name="arrow" size={16}/></Link></div>
     <section className="panel gemini-connection"><div className="panel-heading"><div><h2>Gemini API</h2><p>{status?.verified ? "Connection verified" : status?.configured ? "Key configured; not yet verified in this session" : "Not connected"}</p></div><span className="subtle-badge">{status?.verified ? "Connected" : "Optional"}</span></div><p>Your Gemini Plus app subscription and the developer API are separate. Create a key in <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>. Choose a Free Tier project if you want to avoid paid API usage; your project settings determine charges.</p>
-      {DEMO_MODE ? <p className="quiet-message">API keys can be connected only in the local application, not this public preview.</p> : <form onSubmit={connect}><label>Gemini API key<input type="password" value={key} onChange={e => setKey(e.target.value)} minLength={12} maxLength={300} required autoComplete="off" spellCheck={false} placeholder="Enter privately here, never in chat" disabled={busy}/></label><div><button className="primary-button" disabled={busy || key.length < 12} type="submit">{busy ? "Checking connection…" : "Connect and test key"}<Icon name="shield" size={16}/></button>{status?.configured && <button type="button" className="secondary-button" onClick={disconnect} disabled={busy}>Disconnect</button>}</div><p className="field-note">One small synthetic prompt checks the connection. Your key stays in backend memory, is not written to project files, and is cleared when the backend restarts. No CV is sent by this form.</p></form>}
+      {HOSTED_MODE ? <p className="quiet-message">Gemini is configured by the owner in private backend settings. Visitors do not enter API keys.</p> : DEMO_MODE ? <p className="quiet-message">API keys can be connected only in the local application, not this public preview.</p> : <form onSubmit={connect}><label>Gemini model<select aria-label="Gemini model" value={model} onChange={e => setModel(e.target.value)} disabled={busy}>{(status?.models ?? ["gemini-3.5-flash-lite", "gemini-3.7-flash", "gemini-3.8-flash"]).map(name => <option key={name} value={name}>{name}{name.endsWith("flash-lite") ? " - fast CV review" : ""}</option>)}</select></label><label>Gemini API key<input type="password" value={key} onChange={e => setKey(e.target.value)} minLength={12} maxLength={300} required autoComplete="off" spellCheck={false} placeholder="Enter privately here, never in chat" disabled={busy}/></label><div><button className="primary-button" disabled={busy || key.length < 12} type="submit">{busy ? "Checking connection…" : "Connect and test key"}<Icon name="shield" size={16}/></button>{status?.configured && <button type="button" className="secondary-button" onClick={disconnect} disabled={busy}>Disconnect</button>}</div><p className="field-note">One small synthetic prompt checks the connection. Your key stays in backend memory, is not written to project files, and is cleared when the backend restarts. No CV is sent by this form.</p></form>}
     </section>
     {error && <p className="error-message" role="alert">{error}{diagnostic && <><br/><small>{diagnostic}</small></>}</p>}{message && <p className="inline-status" role="status">{message}</p>}
     <section className="panel gemini-handoff"><Icon name="spark" size={23}/><div><h2>Use your existing Gemini Plus app</h2><p>Copy a review prompt, then paste it into Gemini yourself. This does not connect the API or send your CV automatically.</p><div><button className="secondary-button" type="button" onClick={copyPrompt}>Copy review prompt</button><a className="secondary-button" href="https://gemini.google.com/app" target="_blank" rel="noopener noreferrer">Open Gemini app <Icon name="external" size={14}/></a></div></div></section>

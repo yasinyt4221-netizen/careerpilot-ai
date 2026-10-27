@@ -2,7 +2,7 @@
 from job_analyser import JobAnalysis, Requirement, analyse_job, YEAR_PATTERN
 from matching import MatchReport, MatchSettings, RequirementMatch, compare_cv, cv_chunks, explicit_match
 from cv_review import ReviewItem, anchor, build_review, section_at, utf16_offset
-from cv_evidence import understand_cv, line_number, SkillEvidence, ACTIVITIES, UNPROVEN
+from cv_evidence import understand_cv, line_number, SkillEvidence, ACTIVITIES, UNPROVEN, skill_evidence
 from skills_catalog import SKILLS, mentions
 import gemini_review
 
@@ -70,10 +70,16 @@ def review_documents(cv_text: str, job_description: str = '', provider: str = 'l
             if kind == 'responsibility' and item.status == 'demonstrated' and item.evidence:
                 status = 'matched'
             evidence = explicit or item.evidence
+            evidence_status = 'demonstrated' if status == 'matched' else 'related' if evidence else 'not_found'
+            if established and kind == 'skill':
+                supports = [skill_evidence(skill, chunks) for skill in requirement.skills]
+                supports.sort(key=lambda found: {'demonstrated': 3, 'inferred': 2, 'mentioned': 1, 'not_found': 0}[found[1]], reverse=True)
+                if supports and supports[0][0]:
+                    evidence_status = supports[0][1]
             report.matches.append(RequirementMatch(requirement=requirement, status=status, evidence=evidence,
                 reason=reason if established or kind in {'experience', 'education', 'qualification'} else item.reason,
                 similarity=None, rule_credit=1 if established else 0, semantic_credit=None, priority_weight=2 if item.priority == 'required' else 1,
-                suggestion=item.reason, evidence_status='demonstrated' if status == 'matched' else 'related' if evidence else 'not_found', evidence_line=line_number(cv_text, evidence) if evidence else None))
+                suggestion=item.reason, evidence_status=evidence_status, evidence_line=line_number(cv_text, evidence) if evidence else None))
         if not report.matches:
             # No valid source-anchored requirements: retain the independently computed local report.
             report.matches = compare_cv(cv_text, job_description).matches

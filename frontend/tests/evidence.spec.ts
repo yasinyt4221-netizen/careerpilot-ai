@@ -113,7 +113,7 @@ test("Gemini connection shows a safe diagnosis and can retry after a rejected ke
   await page.route("**/api/ai/status", route => route.fulfill({ json: { configured: false, verified: false, model: "test-model" } }));
   await page.route("**/api/ai/connect", route => {
     attempts += 1;
-    expect(route.request().postDataJSON()).toEqual({ api_key: "synthetic-only-test-key" });
+    expect(route.request().postDataJSON()).toEqual({ api_key: "synthetic-only-test-key", model: "gemini-3.5-flash-lite" });
     return attempts === 1
       ? route.fulfill({ status: 400, json: { detail: "Google did not accept this key. Copy the full API key from Google AI Studio and try again.", code: "KEY_INVALID", provider_status: 400 } })
       : route.fulfill({ json: { configured: true, verified: true, model: "test-model" } });
