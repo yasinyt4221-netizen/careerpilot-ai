@@ -5,7 +5,10 @@ from typing import Annotated
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints, SecretStr
+from typing import Literal
+from review_service import review_documents
+import gemini_review
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -67,6 +70,11 @@ async def validation_error(request: Request, exc: RequestValidationError):
     ]})
 
 
+@app.exception_handler(gemini_review.GeminiUnavailable)
+async def gemini_error(request: Request, exc: gemini_review.GeminiUnavailable):
+    return JSONResponse(status_code=400, content=exc.public_error())
+
+
 class JobRequest(BaseModel):
     job_description: Annotated[str, StringConstraints(strip_whitespace=True, min_length=30, max_length=MAX_JOB_CHARACTERS)] = Field(repr=False)
 
@@ -74,6 +82,54 @@ class JobRequest(BaseModel):
 class MatchRequest(JobRequest):
     cv_text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_CV_CHARACTERS)] = Field(repr=False)
     settings: MatchSettings = Field(default_factory=MatchSettings)
+
+
+class ReviewRequest(BaseModel):
+    cv_text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_CV_CHARACTERS)] = Field(repr=False)
+    job_description: str = Field(default='', max_length=MAX_JOB_CHARACTERS, repr=False)
+    provider: Literal['local', 'gemini'] = 'local'
+    external_ai_consent: bool = False
+
+
+class GeminiConnection(BaseModel):
+    api_key: SecretStr = Field(min_length=12, max_length=300)
+
+
+def local_connection_only(request: Request):
+    if os.getenv('PUBLIC_DEMO_ONLY', 'false').lower() == 'true' or request.client.host not in {'127.0.0.1', '::1', 'testclient'}:
+        raise HTTPException(status_code=403, detail='AI connection settings are available only in the local application.')
+    if request.headers.get('origin') not in {None, 'http://localhost:3000', 'http://127.0.0.1:3000'}:
+        raise HTTPException(status_code=403, detail='Open the local application to manage the AI connection.')
+
+
+@app.get('/api/ai/status')
+def ai_status():
+    return gemini_review.status()
+
+
+@app.post('/api/ai/connect')
+def connect_ai(body: GeminiConnection, request: Request):
+    local_connection_only(request)
+    return gemini_review.connect(body.api_key)
+
+
+@app.post('/api/ai/disconnect')
+def disconnect_ai(request: Request):
+    local_connection_only(request)
+    gemini_review.disconnect()
+    return gemini_review.status()
+
+
+@app.post('/api/cvs/review', response_model=MatchReport)
+def review_cv(body: ReviewRequest):
+    if os.getenv('PUBLIC_DEMO_ONLY', 'false').lower() == 'true':
+        raise HTTPException(status_code=403, detail='Personal CV processing is disabled on the public preview.')
+    if body.provider == 'gemini' and not body.external_ai_consent:
+        raise HTTPException(status_code=422, detail='Choose whether to send this CV and advert to Gemini before using cloud review.')
+    try:
+        return review_documents(body.cv_text, body.job_description, body.provider)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
 
 
 @app.post("/api/jobs/analyse", response_model=JobAnalysis)

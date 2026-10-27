@@ -5,10 +5,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from job_analyser import DEGREES, YEAR_PATTERN, JobAnalysis, Requirement, analyse_job
+from job_analyser import DEGREES, YEAR_PATTERN, JobAnalysis, Requirement, analyse_job, year_value
 from semantic import MODEL_NAME, EmbeddingProvider, SemanticUnavailable, get_semantic_provider
 from skills_catalog import mentions, normalise, text_units, uncertain_or_negated
 from cv_review import ApplicantReview, build_review, is_section_heading
+from cv_evidence import CVProfile, line_number, skill_evidence, understand_cv
 
 MAX_CV_CHARACTERS = 50_000
 MAX_CV_CHUNKS = 400
@@ -37,9 +38,13 @@ class RequirementMatch(BaseModel):
     semantic_credit: float | None
     priority_weight: float
     suggestion: str
+    evidence_status: str = 'not_found'
+    evidence_line: int | None = None
 
 
 class MatchReport(BaseModel):
+    profile: CVProfile | None = None
+    review_provider: str = 'local'
     review: ApplicantReview
     analysis: JobAnalysis
     matches: list[RequirementMatch]
@@ -87,6 +92,13 @@ def acceptable_passage(requirement: Requirement, text: str) -> bool:
 
 
 def explicit_match(requirement: Requirement, chunks: list[str]) -> tuple[str | None, str]:
+    if requirement.kind == 'experience' and requirement.minimum_years is None:
+        return None, 'The requested duration could not be established. Check the exact requirement manually.'
+    if requirement.kind == 'skill':
+        options = [skill_evidence(skill, chunks) for skill in requirement.skills]
+        options.sort(key=lambda item: {'demonstrated': 3, 'inferred': 2, 'mentioned': 1, 'not_found': 0}[item[1]], reverse=True)
+        if options and options[0][0]:
+            return options[0][0], options[0][2]
     for chunk in chunks:
         if not acceptable_passage(requirement, chunk):
             continue
@@ -97,7 +109,9 @@ def explicit_match(requirement: Requirement, chunks: list[str]) -> tuple[str | N
             if len(list(YEAR_PATTERN.finditer(chunk))) > 1:
                 continue  # Multiple claims in one passage need manual attribution.
             years = YEAR_PATTERN.search(chunk)
-            if years and float(years.group(1)) >= (requirement.minimum_years or 0):
+            if years and year_value(years.group(1)) >= (requirement.minimum_years or 0):
+                if not re.search(r'\b(?:experience|worked|working|employment|professional|developer|engineer|analyst|provided|managed|supported)\b', chunk, re.I):
+                    continue
                 if re.search(r"\b(?:less than|up to|at most|nearly|almost)\b", chunk[:years.start()], re.I):
                     continue
                 if not requirement.skills or positive_skills(chunk).intersection(requirement.skills):
@@ -162,7 +176,7 @@ def compare_cv(cv_text: str, job_description: str, settings: MatchSettings | Non
         status = "matched" if explicit else "related" if similarity is not None and similarity >= settings.related_threshold else "not_found"
         if status == "related":
             evidence = related_evidence
-            reason = "This passage is similar in meaning, but does not explicitly establish the requirement. Review it before claiming a match."
+            reason = "This passage describes related work. It does not establish the exact requested tool or requirement; confirm the connection before claiming it."
         # Similarity cannot supply missing years or a missing degree credential.
         semantic_credit = similarity
         if requirement.kind in {"experience", "education", "qualification"} and not explicit and similarity is not None:
@@ -180,6 +194,8 @@ def compare_cv(cv_text: str, job_description: str, settings: MatchSettings | Non
             rule_credit=1.0 if explicit else 0.0,
             semantic_credit=round(semantic_credit, 4) if semantic_credit is not None else None,
             priority_weight=PRIORITY_WEIGHTS[requirement.priority], suggestion=suggestion,
+            evidence_status=(next((skill_evidence(skill, chunks)[1] for skill in requirement.skills if skill_evidence(skill, chunks)[0] == evidence), 'demonstrated') if explicit else 'related' if status == 'related' else 'not_found'),
+            evidence_line=line_number(cv_text, evidence) if evidence else None,
         ))
     denominator = sum(item.priority_weight for item in matches)
     rules_score = 100 * sum(item.rule_credit * item.priority_weight for item in matches) / denominator if denominator else None
@@ -187,6 +203,7 @@ def compare_cv(cv_text: str, job_description: str, settings: MatchSettings | Non
     score = rules_score * effective.rules_weight + (semantic_score or 0) * effective.semantic_weight if rules_score is not None else None
     mode = "no_requirements" if not matches else "hybrid" if similarities is not None else "rules_only"
     return MatchReport(
+        profile=understand_cv(cv_text, chunks),
         review=build_review(cv_text, matches, chunks, mode),
         analysis=analysis, matches=matches,
         score=round(score, 1) if score is not None else None,

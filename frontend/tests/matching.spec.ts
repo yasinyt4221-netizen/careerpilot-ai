@@ -34,7 +34,7 @@ test("clicking a highlighted passage opens its exact recommendation", async ({ p
   await expect(active).toContainText("Built a reporting dashboard.");
   await expect(active).toContainText("Edit in");
   await expect(active).toContainText("who used it");
-  await expect(active).toContainText("Fill the brackets with your facts");
+  await expect(active).toContainText("The detail this line needs", { ignoreCase: true });
   await expect(active.getByRole("button", { name: "Edit this passage" })).toBeVisible();
 });
 

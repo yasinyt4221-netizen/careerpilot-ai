@@ -1,17 +1,22 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import CVReview from "../components/cv-review";
 import { isReviewResponse, readResponse, type ReviewItem, type ReviewResponse } from "../review-types";
 import JobFinder from "../components/job-finder";
 import { API_URL, DEMO_MODE, publicAsset } from "../api-config";
+import { useCVSession } from "../cv-session";
+import Link from "next/link";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 export default function Home() {
+  const session = useCVSession();
   const [file, setFile] = useState<File | null>(null);
-  const [description, setDescription] = useState("");
-  const [cvText, setCvText] = useState<string | null>(null);
+  const [description, setDescription] = useState(session.target?.description ?? "");
+  const [cvText, setCvText] = useState<string | null>(session.text || null);
+  const [consent, setConsent] = useState(false);
+  const [geminiReady, setGeminiReady] = useState(false);
   const [response, setResponse] = useState<ReviewResponse | null>(null);
   const [busy, setBusy] = useState<"reading" | "analysing" | "updating" | null>(null);
   const [error, setError] = useState("");
@@ -29,6 +34,9 @@ export default function Home() {
   const revision = useRef(0);
 
   useEffect(() => () => { revision.current++; controller.current?.abort(); }, []);
+  useEffect(() => { if (!DEMO_MODE) { const abort = new AbortController(); fetch(`${API_URL}/api/ai/status`, { signal: abort.signal }).then(r => r.json()).then(data => setGeminiReady(data.configured === true)).catch(() => {}); return () => abort.abort(); } }, []);
+  const reviewSelectedJob = useEffectEvent(() => { if (session.target && session.text && !DEMO_MODE) void runReview(undefined, false, session.target.description); });
+  useEffect(() => { reviewSelectedJob(); }, [session.target]);
   useEffect(() => {
     if (DEMO_MODE || new URLSearchParams(window.location.search).get("sample") === "1") {
       void loadDemo();
@@ -38,12 +46,12 @@ export default function Home() {
 
   function invalidate() {
     revision.current++; controller.current?.abort();
-    setBusy(null); setResponse(null); setError(""); setEditingInputs(true);
+    setBusy(null); setResponse(null); setError(""); setEditingInputs(true); setConsent(false);
   }
 
   function choose(candidate: File | undefined) {
     if (DEMO_MODE) return;
-    invalidate(); setFile(null); setCvText(null); setHistory([]); setSampleMode(false);
+    invalidate(); setFile(null); setCvText(null); setHistory([]); setSampleMode(false); session.setCV("", "");
     if (!candidate) return;
     if (!/\.(pdf|docx)$/i.test(candidate.name)) setError("Choose a PDF or DOCX CV.");
     else if (candidate.size === 0) setError("This file is empty. Choose a CV with text in it.");
@@ -51,19 +59,21 @@ export default function Home() {
     else setFile(candidate);
   }
 
-  async function requestReview(text: string, signal: AbortSignal): Promise<ReviewResponse> {
-    const result = await fetch(`${API_URL}/api/matches/compare`, {
+  async function requestReview(text: string, signal: AbortSignal, advert = description): Promise<ReviewResponse> {
+    const enhanced = !advert.trim() || session.provider === "gemini";
+    const result = await fetch(`${API_URL}${enhanced ? "/api/cvs/review" : "/api/matches/compare"}`, {
       method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", signal,
-      body: JSON.stringify({ cv_text: text, job_description: description }),
+      body: JSON.stringify({ cv_text: text, job_description: advert, ...(enhanced ? { provider: session.provider, external_ai_consent: consent } : {}) }),
     });
     const data = await readResponse(result);
     if (!isReviewResponse(data, text)) throw new Error("The review service returned an unexpected response. Please try again.");
     return data;
   }
 
-  async function runReview(editedText?: string, undo = false) {
+  async function runReview(editedText?: string, undo = false, advert = description) {
     if (DEMO_MODE) return;
-    if (busy || !file || description.trim().length < 30) return;
+    if (busy || (!file && !cvText) || (advert.trim().length > 0 && advert.trim().length < 30)) return;
+    if (session.provider === "gemini" && !consent) { setError("Choose whether to send your CV and this advert to Gemini, or select local review."); return; }
     const current = ++revision.current;
     const abort = new AbortController(); controller.current = abort;
     const timeout = setTimeout(() => abort.abort(), 120_000);
@@ -71,7 +81,7 @@ export default function Home() {
     try {
       let text = editedText ?? cvText;
       if (text === null) {
-        const form = new FormData(); form.append("file", file);
+        const form = new FormData(); form.append("file", file!);
         const result = await fetch(`${API_URL}/api/cvs/extract`, { method: "POST", body: form, signal: abort.signal, cache: "no-store" });
         const data = await readResponse(result);
         if (data === null || typeof data !== "object" || !("extracted_text" in data) || typeof data.extracted_text !== "string" || !data.extracted_text.trim()) {
@@ -82,11 +92,13 @@ export default function Home() {
       text = text.trim();
       if (current !== revision.current) return;
       setBusy(editedText === undefined ? "analysing" : "updating");
-      const data = await requestReview(text, abort.signal);
+      const data = await requestReview(text, abort.signal, advert);
       if (current !== revision.current) return;
       if (editedText !== undefined && cvText !== null) setHistory(previous => undo ? previous.slice(0, -1) : [...previous, cvText].slice(-10));
       if (editedText === undefined) setBaselineScore(data.score);
       setCvText(text); setResponse(data); setEditingInputs(false); setReviewVersion(value => value + 1);
+      session.setCV(text, file?.name ?? session.filename ?? "Your CV");
+      if (session.target) session.setTarget(null);
       if (editedText === undefined) requestAnimationFrame(() => reviewHeading.current?.focus());
     } catch (err) {
       if (current === revision.current) {
@@ -139,11 +151,13 @@ export default function Home() {
 
   return <div>
     <main className="workspace">
-      {sampleMode && !DEMO_MODE && <div className="demo-banner"><strong>Sample review.</strong> Explore visual edits using synthetic text. Sample edits do not recalculate the score.</div>}
-      {DEMO_MODE && <div className="demo-banner"><p><strong>Public preview.</strong> Explore a sample CV and published job feeds. Personal CV uploads are disabled until secure backend hosting is connected.</p><button type="button" className="small-primary" onClick={loadDemo} disabled={!!busy}>Try the sample CV</button>{response && <span> Edits stay in this preview; the sample score is not recalculated.</span>}</div>}
-      {!response && <div className="intro"><p className="eyebrow">A CLEARER CV. A STRONGER APPLICATION.</p><h1>Know exactly what to change.</h1><p>{DEMO_MODE ? "Try the sample to explore highlighted edits and before/after suggestions." : <>Upload your CV and paste the job description.<br />Get highlighted passages and practical recommendations.</>}</p>{!DEMO_MODE && <button className="secondary-button sample-review-link" type="button" onClick={loadDemo} disabled={!!busy}>Or try a sample review</button>}</div>}
+      {!DEMO_MODE && session.provider === "gemini" && <p className="field-note cloud-data-note">Google says free-tier content may be used to improve its products. Anonymise your CV before cloud review. <a href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank" rel="noopener noreferrer">Google data-use terms</a></p>}
+      {!DEMO_MODE && <div className="review-engine"><label>Review with<select aria-label="Review engine" value={session.provider} onChange={e => { invalidate(); setConsent(false); session.setProvider(e.target.value as "local" | "gemini"); }} disabled={!!busy}><option value="local">Local analysis — stays on this computer</option><option value="gemini" disabled={!geminiReady}>Gemini API{geminiReady ? " — connected" : " — connect a key first"}</option></select></label><Link href="/connections/">Connect Gemini or job platforms</Link>{session.provider === "gemini" && <label className="cloud-consent"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} disabled={!!busy}/>I choose to send this CV and advert to Google’s Gemini API for review. API quotas/billing and Google’s data terms apply.</label>}</div>}
+      {sampleMode && !DEMO_MODE && <div className="demo-banner"><strong>Sample review.</strong> Explore visual edits using synthetic text. Upload your CV for a fresh, personal analysis.</div>}
+      {DEMO_MODE && <div className="demo-banner"><p><strong>Public preview.</strong> Explore a sample CV and published job feeds. Personal CV uploads are disabled until secure backend hosting is connected.</p><button type="button" className="small-primary" onClick={loadDemo} disabled={!!busy}>Try the sample CV</button>{response && <span> Edits update this sample preview. Live CV analysis runs in the local app.</span>}</div>}
+      {!response && <div className="intro"><p className="eyebrow">A CLEARER CV. A STRONGER APPLICATION.</p><h1>Know exactly what to change.</h1><p>{DEMO_MODE ? "Try the sample to explore highlighted edits and before/after suggestions." : <>Upload your CV to understand your skills and find suitable roles.<br />Add a job description only when you want a role-specific comparison.</>}</p>{!DEMO_MODE && <button className="secondary-button sample-review-link" type="button" onClick={loadDemo} disabled={!!busy}>Or try a sample review</button>}</div>}
 
-      {response && <div className="input-summary"><div><span aria-hidden="true">✓</span><p><strong>{file?.name}</strong><small>{response.analysis.title ?? "Your chosen role"}</small></p></div><button className="text-button" type="button" onClick={() => setEditingInputs(value => !value)} disabled={!!busy}>{editingInputs ? "Close inputs" : "Change CV or job"}</button></div>}
+      {response && <div className="input-summary"><div><span aria-hidden="true">✓</span><p><strong>{file?.name ?? session.filename}</strong><small>{response.analysis.title ?? "Your CV overview"}</small></p></div><button className="text-button" type="button" onClick={() => setEditingInputs(value => !value)} disabled={!!busy}>{editingInputs ? "Close inputs" : "Change CV or job"}</button></div>}
 
       <form className="review-form" onSubmit={event => { event.preventDefault(); void runReview(); }} hidden={!editingInputs} aria-busy={!!busy}>
         <div className="input-grid">
@@ -158,14 +172,14 @@ export default function Home() {
               <strong>{file ? file.name : "Drop your CV here"}</strong><span>{file ? "Click to choose a different file" : <>or <u>browse files</u></>}</span><small>PDF or DOCX · Up to 5 MB</small>
             </label><p className="input-help" id="upload-help">Use a text-based CV. Scanned PDFs need OCR first.</p>
           </section>
-          <section className="input-panel" aria-labelledby="job-heading"><div className="section-heading"><span>2</span><h2 id="job-heading">The job you want</h2></div><label className="sr-only" htmlFor="job-description">Job description</label><textarea id="job-description" rows={8} value={description} maxLength={20_000} disabled={!!busy || DEMO_MODE} placeholder="Paste the job description here, including responsibilities and requirements…" onChange={event => { invalidate(); setDescription(event.target.value); }} /><p className="input-help">Include the skills and experience the employer asks for.</p></section>
+          <section className="input-panel" aria-labelledby="job-heading"><div className="section-heading"><span>2</span><h2 id="job-heading">Compare to a job <small>(optional)</small></h2></div><label className="sr-only" htmlFor="job-description">Job description</label><textarea id="job-description" rows={8} value={description} maxLength={20_000} disabled={!!busy || DEMO_MODE} placeholder="Paste the job description here, including responsibilities and requirements…" onChange={event => { invalidate(); setDescription(event.target.value); }} /><p className="input-help">Leave blank to review your CV first. Paste an advert for exact requirement checks.</p></section>
         </div>
-        <div className="form-footer"><p>{DEMO_MODE ? "Use “Try the sample CV” above to explore this public preview." : !file ? "Add your CV and job description to get started." : description.trim().length < 30 ? "Paste at least 30 characters from the job description." : "Ready to review your CV for this role."}</p><button type="submit" className="primary-button" disabled={DEMO_MODE || !file || description.trim().length < 30 || !!busy}>{busy === "reading" ? "Reading your CV…" : busy === "analysing" ? "Analysing your CV…" : "Analyse my CV"}{!busy && <span aria-hidden="true">↗</span>}</button></div>
+        <div className="form-footer"><p>{DEMO_MODE ? "Use “Try the sample CV” above to explore this public preview." : (!file && !cvText) ? "Add your CV to get started." : description.trim().length > 0 && description.trim().length < 30 ? "Paste at least 30 characters from the job description." : "Ready to understand your CV and its evidence."}</p><button type="submit" className="primary-button" disabled={DEMO_MODE || (!file && !cvText) || (description.trim().length > 0 && description.trim().length < 30) || !!busy}>{busy === "reading" ? "Reading your CV…" : busy === "analysing" ? "Analysing your CV…" : "Analyse my CV"}{!busy && <span aria-hidden="true">↗</span>}</button></div>
       </form>
 
       {busy && <div role="status" className="loading-note"><span className="spinner" aria-hidden="true" />{busy === "updating" ? "Updating your review…" : busy === "reading" ? "Reading your CV…" : "Finding useful changes for this role…"}<button type="button" className="text-button" onClick={cancel}>Cancel</button></div>}
       {error && <div role="alert" className="error-message">{error}</div>}
-      {response && cvText !== null && <><div ref={reviewHeading} tabIndex={-1} className="review-result"><CVReview key={reviewVersion} text={cvText} filename={file?.name ?? "Sample CV"} response={response} baselineScore={baselineScore} updating={!!busy} onReplace={replace} onUndo={undoEdit} canUndo={DEMO_MODE || sampleMode ? demoHistory.length > 0 : history.length > 0} /></div><div className="workspace-job-toggle"><div><h2>Find your next opportunity</h2><p>Explore public job boards with your skills and sponsorship needs in mind.</p></div><button className="primary-button" type="button" onClick={() => setShowJobs(value => !value)}>{showJobs ? "Hide jobs" : "Find matching jobs"}</button></div>{showJobs && <JobFinder cvText={DEMO_MODE || sampleMode ? "" : cvText} onSelect={DEMO_MODE || sampleMode ? undefined : selected => { invalidate(); setDescription(selected); setShowJobs(false); }}/>}</>}
+      {response && cvText !== null && <><div ref={reviewHeading} tabIndex={-1} className="review-result"><CVReview key={reviewVersion} text={cvText} filename={file?.name ?? (sampleMode ? "Sample CV" : session.filename) ?? "Your CV"} response={response} baselineScore={baselineScore} updating={!!busy} onReplace={replace} onUndo={undoEdit} canUndo={DEMO_MODE || sampleMode ? demoHistory.length > 0 : history.length > 0} /></div><div className="workspace-job-toggle"><div><h2>Find your next opportunity</h2><p>Explore public job boards with your skills and sponsorship needs in mind.</p></div><button className="primary-button" type="button" onClick={() => setShowJobs(value => !value)}>{showJobs ? "Hide jobs" : "Find matching jobs"}</button></div>{showJobs && <JobFinder key={reviewVersion} cvText={DEMO_MODE || sampleMode ? "" : cvText} onSelect={DEMO_MODE || sampleMode ? undefined : selected => { invalidate(); setDescription(selected); setShowJobs(false); if (session.provider === "local") void runReview(undefined, false, selected); }}/>}</>}
       <footer className="workspace-footer"><p>Your experience, in your own words. Only add what is true.</p><p>Development demo · Use synthetic CVs only</p></footer>
     </main>
   </div>;

@@ -2,9 +2,11 @@
 
 A CV workspace with a separate Next.js frontend and FastAPI backend. The home
 page follows the supplied emerald-and-white design. The workspace extracts
-PDF/DOCX text, shows a simple role-alignment score, and highlights passages
-with visual before/after suggestions. Formula details stay out of the applicant
-screen. Missing evidence is shown separately; achievements are never invented.
+PDF/DOCX text and highlights passages with exact line changes and deletions.
+The review shows each job requirement alongside CV evidence, distinguishing
+demonstrated, listed, related and not-found evidence. Applicant screens use
+these checks instead of arbitrary `/100` or hiring-probability scores.
+Missing evidence is shown separately; achievements are never invented.
 
 Public source: [careerpilot-ai](https://github.com/yasinyt4221-netizen/careerpilot-ai).
 The GitHub Pages workflow publishes a **sample-only preview** at
@@ -22,12 +24,15 @@ board, then prepare an interview answer or download an application draft.
 labelled fictional roles without replacing saved real jobs.
 
 - `/dashboard/`: actual board counts, next-action dates and a sample CV preview.
-- `/workspace/`: highlighted CV edits, undo, text download and print review.
+- `/workspace/`: CV-first skill review, optional job comparison, exact line edits,
+  a factual work-example builder, undo, text download and print review.
 - `/jobs/`: public listings, sponsorship evidence and save-to-board controls.
 - `/applications/`: board/list views, stages, notes, dates, manual job links and CSV export.
 - `/prepare/`: role-based practice prompts, a STAR answer builder, cover-letter
   drafts and follow-up email drafts made from entered facts.
 - `/help/`: demo limitations, browser storage, export and deletion controls.
+- `/connections/`: optional local Gemini key connection and official LinkedIn,
+  Indeed and Anglia Ruskin University Handshake sign-in links.
 
 Saved roles use this browser's local storage; there is no account or cross-device
 sync. Drafts and CV text are not persisted by the app. Blocked storage falls
@@ -43,6 +48,13 @@ See [showcase notes](docs/showcase.md) for research, behavior and verification.
 ## Setup and run
 
 Start in the repository root (`Y:\Websites\JobHelper` in this workspace).
+
+On Windows, after dependencies and the model are installed, run
+`./Start-Local.ps1` to build and start both services with uploads and local AI
+enabled. Open <http://localhost:3000/workspace>. The script verifies the cached
+model and actual review API, binds both services to loopback, and writes logs
+to ignored `.local/`. Use `./Stop-Local.ps1` to stop them. The public sample
+deployment stays separate from this local configuration.
 
 ### Backend — terminal 1
 
@@ -80,8 +92,9 @@ npm run dev
 
 macOS/Linux: use `cp .env.local.example .env.local` for the copy command.
 Open <http://localhost:3000>. The server binds to the loopback interface.
-Open **My workspace**, choose a synthetic PDF or DOCX, paste the job advert,
-then click **Analyse my CV**.
+Open **CV review**, choose a synthetic PDF or DOCX, then click **Analyse my CV**.
+A job advert is optional: leave it blank to understand the CV first, then find
+roles from its evidence. Add an advert for a requirement-by-requirement comparison.
 Extraction and review happen together. Click a highlighted passage to see
 what to change and where. **Apply change** accepts a precise spelling/repeated-word
 fix; **Edit this passage** lets the applicant supply their own revised wording.
@@ -188,8 +201,8 @@ It returns per-requirement evidence, explicit/related/not-found statuses,
 score components, requested/effective settings, model/mode, and limitations.
 Its `review` field contains applicant recommendations, missing-requirement checks,
 covered requirements, and browser-compatible UTF-16 highlight offsets. The
-applicant interface renders that practical review, a simple alignment score,
-and the role title. The score is not an interview or hiring prediction.
+applicant interface renders that practical review, requirement evidence,
+and the role title. Legacy numeric scores are not shown as a hiring prediction.
 Weights must total 1. Required requirements weigh 2, unspecified 1, preferred
 0.5. Default overall weighting is 60% rules and 40% semantic similarity;
 these settings are available through the API only. Rules-only fallback uses 100% rules.
@@ -208,7 +221,9 @@ No identifiable requirements means no score. See
   available; complex layouts may have imperfect reading order.
 - ZIP expansion and text limits protect the local parser. See
   [Milestone 1 notes](docs/milestone-1.md) for the limits and architecture.
-- No document persistence or external AI service calls are implemented.
+- No document persistence is implemented. Local review sends no CV text to an
+  external AI service. Optional Gemini review requires a connected API key and
+  explicit document-sharing consent; see [evidence review](docs/evidence-review.md).
   Multipart handling can use temporary files, which are closed after parsing.
   CV text is displayed in the browser session and is not written to app logs.
 - Matching accepts up to 50,000 CV characters (400 excerpts), 20,000 advert

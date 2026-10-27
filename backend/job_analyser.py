@@ -31,10 +31,15 @@ class JobAnalysis(BaseModel):
     method: str = "English rules and a curated skill catalogue"
 
 
+NUMBER_WORDS = {'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5, 'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10}
 YEAR_PATTERN = re.compile(
-    r"\b(?:at least\s+|minimum(?: of)?\s+)?(\d{1,2}(?:\.\d+)?)\s*"
-    r"(?:[-–]\s*\d{1,2}\s*)?\+?\s*years?\b", re.I
+    r"\b(?:at least\s+|minimum(?: of)?\s+)?(\d{1,2}(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)\s*"
+    r"(?:[-–]\s*\d{1,2}\s*)?\+?\s*(?:or more\s+)?years?\b", re.I
 )
+
+
+def year_value(value: str) -> float:
+    return float(NUMBER_WORDS[value.casefold()]) if value.casefold() in NUMBER_WORDS else float(value)
 DEGREES = {
     "bachelor": r"\b(?:bachelor'?s?|bsc|b\.sc\.?|beng|b\.eng\.?)\b",
     "master": r"\b(?:master'?s?|msc|m\.sc\.?|meng|m\.eng\.?)\b",
@@ -44,9 +49,9 @@ FIELDS = ("computer science", "data science", "business", "engineering", "mathem
 REQUIRED = re.compile(r"\b(?:essential|must|required|minimum|mandatory|need to|at least)\b", re.I)
 PREFERRED = re.compile(r"\b(?:preferred|desirable|nice to have|bonus|advantage|ideally|optional)\b", re.I)
 HEADINGS = {
-    "required": r"(?:requirements|qualifications|essential(?: skills)?|required(?: skills)?|must.have|what you(?:'ll)? bring|what we(?:'re| are) looking for|minimum qualifications)",
+    "required": r"(?:requirements|qualifications|essential(?: skills)?|required(?: skills)?|must.have|what you(?:'ll)? bring|what you(?:'ll| will) need(?: to thrive| to succeed)?|what we(?:'re| are) looking for|minimum qualifications|who you are|your skills|your experience|what makes you great)",
     "preferred": r"(?:preferred(?: skills| qualifications)?|desirable(?: skills)?|nice.to.have|bonus(?: points)?)",
-    "responsibility": r"(?:responsibilities|your responsibilities|what you(?:'ll| will) do|the role|duties)",
+    "responsibility": r"(?:responsibilities|your responsibilities|what you(?:'ll| will) do|the role|about the role|your role|duties)",
     "ignore": r"(?:benefits|what we offer|about us|about the company|equal opportunit\w*|how to apply|salary|perks)",
 }
 
@@ -69,7 +74,7 @@ def analyse_job(text: str) -> JobAnalysis:
 
     for unit in units:
         heading, separator, remainder = unit.partition(":")
-        new_context = next((key for key, pattern in HEADINGS.items() if re.fullmatch(pattern, heading.strip(), re.I)), None)
+        new_context = next((key for key, pattern in HEADINGS.items() if re.fullmatch(pattern, normalise(heading.strip()), re.I)), None)
         if new_context:
             context = new_context
             if not separator or not remainder.strip():
@@ -77,8 +82,12 @@ def analyse_job(text: str) -> JobAnalysis:
             unit = remainder.strip()
         if context == "ignore":
             continue
+        if re.search(r'\b(?:we|company)\b.{0,30}\b(?:offer|provide|support)\b.{0,30}sponsor|visa sponsorship.{0,20}(?:available|offered|provided)', unit, re.I):
+            continue  # Employer policy, handled separately from applicant skills.
+        if not mentions(unit) and re.search(r'\b(?:we expect excellence|best at what we do|equal opportunity|we are committed to diversity|our mission is)\b', unit, re.I):
+            continue
         # A "not required" clause should not create a positive requirement.
-        if re.search(r"\b(?:not required|not necessary|not essential|no .{0,30}experience (?:is )?required)\b", unit, re.I):
+        if re.search(r"\b(?:not required|not necessary|not essential|no .{0,30}experience (?:is )?required)\b", unit, re.I) and not any(not uncertain_or_negated(unit, start, end) for _, start, end in mentions(unit)):
             warnings.append(f"Excluded an explicitly optional/non-required clause: {unit}")
             continue
         priority: Priority = (
@@ -86,7 +95,7 @@ def analyse_job(text: str) -> JobAnalysis:
             "required" if REQUIRED.search(unit) or context == "required" else
             "preferred" if context == "preferred" else "unspecified"
         )
-        skills = [name for name, start, end in mentions(unit) if not uncertain_or_negated(unit, start, end)]
+        skills = list(dict.fromkeys(name for name, start, end in mentions(unit) if not uncertain_or_negated(unit, start, end)))
         all_mentions = mentions(unit)
         between = unit[all_mentions[0][1]:all_mentions[-1][2]] if all_mentions else ""
         alternatives = len(skills) > 1 and re.search(r"\bor\b", between, re.I) and not re.search(r"\band\b", between, re.I)
@@ -97,7 +106,7 @@ def analyse_job(text: str) -> JobAnalysis:
                 add("skill:" + skill, skill, "skill", priority, unit, skills=[skill])
         years = YEAR_PATTERN.search(unit)
         if years and not re.search(r"\b(?:up to|at most|less than)\b", unit[:years.start()], re.I):
-            minimum = float(years.group(1))
+            minimum = year_value(years.group(1))
             if minimum <= 50:
                 scope = skills if len(skills) == 1 else []
                 label = f"At least {minimum:g} years of experience" + (f" with {scope[0]}" if scope else "")

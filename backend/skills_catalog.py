@@ -47,6 +47,15 @@ SKILLS = {
     "Cybersecurity": ("cybersecurity", "cyber security", "information security"),
     "PMP": ("pmp", "project management professional"),
     "CISSP": ("cissp",),
+    "Figma": ("figma",), "User research": ("user research", "usability research"),
+    "UX design": ("ux design", "user experience design"), "UI design": ("ui design", "user interface design"),
+    "Business analysis": ("business analysis", "business requirements analysis"),
+    "Statistical analysis": ("statistical analysis", "statistical modelling", "statistical modeling"),
+    "Workday": ("workday",), "dbt": ("dbt", "data build tool"),
+    "Snowflake": ("snowflake",), "Databricks": ("databricks",),
+    "BigQuery": ("bigquery",), "Looker": ("looker",),
+    "DAX": ("dax",), "Power Query": ("power query",),
+    "SAP": ("sap",), "Salesforce": ("salesforce",),
 }
 
 
@@ -67,12 +76,14 @@ def mentions(text: str) -> list[tuple[str, int, int]]:
     value = normalise(text)
     found = []
     for name, patterns in PATTERNS.items():
-        match = next((match for pattern in patterns if (match := pattern.search(value))), None)
-        if name == "Excel" and match and re.match(r"\s+(?:at|in)\b", value[match.end():]):
-            continue  # "excel at communication" is a verb, not spreadsheet experience.
-        if match:
-            found.append((name, match.start(), match.end()))
-    return sorted(found, key=lambda item: item[1])
+        for pattern in patterns:
+            for match in pattern.finditer(value):
+                if name == "Excel" and re.match(r"\s+(?:at|in)\b", value[match.end():]):
+                    continue
+                if name == 'Sales' and re.match(r'\s+(?:data|records?|figures?|trends?|reports?|dashboards?|analysis|team|department)\b', value[match.end():]):
+                    continue  # Analysing sales data or presenting to a sales team is not selling experience.
+                found.append((name, match.start(), match.end()))
+    return sorted(set(found), key=lambda item: item[1])
 
 
 def uncertain_or_negated(text: str, start: int, end: int) -> bool:

@@ -1,5 +1,10 @@
 # Applicant-focused CV review
 
+This documents the earlier highlighted-review milestone. The current local
+workflow uses [evidence-first review](evidence-review.md), CV-only analysis,
+exact line edits and deletions, and optional consent-based Gemini assistance.
+That newer workflow supersedes the score display described below.
+
 The screen now has one action: upload a CV, paste the job advert, and click
 **Analyse my CV**. Extraction is automatic. Results show the CV on the left and
 recommendations on the right. A simple CV-to-role score is visible, with an

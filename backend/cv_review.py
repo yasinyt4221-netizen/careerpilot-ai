@@ -23,6 +23,9 @@ class ReviewItem(BaseModel):
     job_requirement: str | None = None
     priority: Literal["required", "preferred", "unspecified"] = "unspecified"
     requirement_ids: list[str] = Field(default_factory=list)
+    action: Literal['replace', 'delete', 'clarify', 'check'] = 'clarify'
+    line_number: int | None = None
+    question: str | None = None
 
 
 class ApplicantReview(BaseModel):
@@ -86,6 +89,27 @@ def build_review(cv_text: str, matches: list["RequirementMatch"], chunks: list[s
     gaps: list[ReviewItem] = []
     covered = []
     notices = []
+    # Safe, exact line edits. Never remove an experience merely for lacking a keyword.
+    previous_line = ''
+    for line_match in re.finditer(r'[^\n]+', cv_text):
+        line = line_match.group().strip(' \t•*-–—')
+        position = line_match.start() + line_match.group().find(line) if line else line_match.start()
+        filler = bool(re.fullmatch(r'(?:references? available (?:on|upon) request[.!]?|(?:a )?(?:hard[- ]?working|motivated|enthusiastic|dedicated)[, \w-]*(?:seeking|looking for) (?:a |an )?(?:challenging |new )?(?:role|opportunity|position)[.!]?)', line, re.I))
+        duplicate = line == previous_line and len(line.split()) >= 5 and bool(ACTION.search(line))
+        if filler or duplicate:
+            item = anchor(ReviewItem(category='wording', title='Delete this repeated line' if duplicate else 'Delete this generic line', section=section_at(cv_text, position),
+                explanation='The previous line already says the same thing.' if duplicate else 'This does not show a skill, project or outcome. Use the space for evidence relevant to the role.',
+                steps=['Remove only the highlighted line. Keep the rest of the role or section.'], replacement='', action='delete'), cv_text, line)
+            item.start = utf16_offset(cv_text, position); item.end = utf16_offset(cv_text, position + len(line))
+            changes.append(item)
+        previous_line = line or previous_line
+    verbs = {'creating': 'Created', 'building': 'Built', 'developing': 'Developed', 'managing': 'Managed', 'analysing': 'Analysed', 'analyzing': 'Analyzed', 'testing': 'Tested', 'maintaining': 'Maintained', 'supporting': 'Supported'}
+    for sentence in re.finditer(r'\bResponsible for (' + '|'.join(verbs) + r')\b[^\n.!?]*[.!]?', cv_text, re.I):
+        original = sentence.group()
+        replacement = verbs[sentence.group(1).lower()] + original[sentence.end(1) - sentence.start():]
+        item = anchor(ReviewItem(category='wording', title='Replace this duty statement with the action', section=section_at(cv_text, sentence.start()), explanation='Say what you did directly, keeping the same task and tools. Apply this only if you personally carried out this work.', steps=['Review the proposed wording, then replace the highlighted sentence.'], replacement=replacement, action='replace'), cv_text, original)
+        item.start = utf16_offset(cv_text, sentence.start()); item.end = utf16_offset(cv_text, sentence.end())
+        changes.append(item)
     for match in re.finditer(r"\b(" + "|".join(SPELLING) + r")\b", cv_text, re.I):
         original = match.group()
         replacement = SPELLING[original.lower()]
@@ -121,7 +145,7 @@ def build_review(cv_text: str, matches: list["RequirementMatch"], chunks: list[s
                         positive_skills(chunk).intersection(requirement.skills)
                         and acceptable_passage(requirement, chunk)
                         and ACTION.search(chunk) and len(chunk.split()) >= 5]
-            if examples:
+            if examples or getattr(match, 'evidence_status', '') == 'inferred':
                 covered.append(requirement.label)
             elif match.evidence:
                 skill_groups.setdefault(match.evidence, []).append(match)
@@ -200,6 +224,14 @@ def build_review(cv_text: str, matches: list["RequirementMatch"], chunks: list[s
         notices.append("Showing the first 40 suggested changes. Fix these and review again to see the rest.")
     for index, item in enumerate(changes + gaps, 1):
         item.id = f"review-{index}"
+        if item.start is not None:
+            item.line_number = cv_text.encode('utf-16-le')[:item.start * 2].decode('utf-16-le').count('\n') + 1
+        if item.replacement is not None and item.action != 'delete':
+            item.action = 'replace'
+        elif item.excerpt is None:
+            item.action = 'check'
+        if item.structure:
+            item.question = ('What did you build or analyse, which tools did you actually use in this work, and who used the result?' if re.search(r'dashboard|report|analys|analyz', item.explanation + (item.job_requirement or ''), re.I) else 'What did you personally do in this example, how did you do it, and what happened?')
     if mode == "no_requirements":
         notices.append("The advert did not include clear requirements to review. Paste its responsibilities and qualifications, then analyse again.")
     elif mode == "rules_only":
