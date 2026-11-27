@@ -10,6 +10,7 @@ test("CV-only review finds skills and carries the CV into job recommendations", 
   await expect(page.getByRole("button", { name: "Analyse my CV", exact: true })).toBeEnabled();
   const reviewResponse = page.waitForResponse(response => response.url().endsWith("/api/cvs/review"));
   await page.getByRole("button", { name: "Analyse my CV", exact: true }).click();
+  await page.getByRole("tab", { name: "Line by line" }).click();
   const report = await (await reviewResponse).json();
   expect(report.score).toBeNull();
   await expect(page.getByRole("heading", { name: "What your CV demonstrates", exact: true })).toBeVisible();
@@ -20,13 +21,15 @@ test("CV-only review finds skills and carries the CV into job recommendations", 
     total_matches: 1, listings_checked: 200, compared_count: 12, sources: [], searched_at: "2026-10-27T05:00:00Z", coverage: "Configured public feeds", visa_note: "Check eligibility", more_platforms: [], visa_guidance_url: null, register_available: false,
   } }));
   await page.getByRole("navigation", { name: "Workspace navigation", exact: true }).getByRole("link", { name: "Find jobs", exact: true }).click();
+  await page.waitForURL(/\/jobs/); // the review page has its own job finder; wait to leave it
   await expect(page.getByLabel("Role or keywords", { exact: true })).toHaveValue("");
   const request = page.waitForRequest(request => request.url().endsWith("/api/jobs/search"));
   await page.getByRole("button", { name: "Find roles for my CV", exact: true }).click();
   expect((await request).postDataJSON()).toMatchObject({ query: "", career_level: "student" });
   expect((await request).postDataJSON().cv_text).toContain("Python");
-  await expect(page.locator(".job-fit-label")).toContainText("2 of 2 core skills supported");
-  await expect(page.locator(".job-result-card")).not.toContainText("33");
+  await expect(page.locator(".job-match")).toContainText("33%");
+  await expect(page.locator(".job-match")).toContainText("2 of 2 core skills");
+  await expect(page.locator(".job-result-card")).not.toContainText(/shortlist|chance|probability/i);
   await page.getByRole("button", { name: "Why this role?" }).click();
   await expect(page.locator(".job-evidence-list")).toContainText("CV line 5");
   await page.getByRole("button", { name: "Show exact CV changes" }).click();
@@ -41,6 +44,7 @@ test("exact deletion and duty rewrites identify their line and support undo", as
   await page.goto("/workspace/");
   await page.getByLabel("Choose a PDF or DOCX CV").setInputFiles(fixture);
   await page.getByRole("button", { name: "Analyse my CV", exact: true }).click();
+  await page.getByRole("tab", { name: "Line by line" }).click();
   await expect(page.locator(".recommendation.selected")).toContainText("Line 2");
   await page.getByRole("button", { name: "Delete this line", exact: true }).click();
   await expect(page.getByTestId("cv-preview")).not.toContainText("Hardworking");
@@ -58,6 +62,7 @@ test("work-example builder preserves the skill list and inserts only applicant f
   await page.getByLabel("Choose a PDF or DOCX CV").setInputFiles(fixture);
   await page.getByLabel("Job description", { exact: true }).fill(JOB);
   await page.getByRole("button", { name: "Analyse my CV", exact: true }).click();
+  await page.getByRole("tab", { name: "Line by line" }).click();
   await page.getByTestId("cv-preview").getByRole("button", { name: /Show how you used Python, SQL/ }).click();
   await page.getByRole("button", { name: "Build a clear CV line from my facts", exact: true }).click();
   await page.getByLabel("What did you personally do?").fill("Queried customer tables");

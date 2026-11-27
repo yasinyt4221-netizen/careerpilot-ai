@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 
 export function Rocket({ size = 30 }: { size?: number }) {
-  return <svg width={size} height={size} viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M15 25c-4-2-6-1-9 2l4-10 8-3M15 25c2 4 1 6-2 9l10-4 3-8" fill="#15745a"/><path d="M15 25C17 12 25 5 36 4c0 11-7 19-20 22l-1-1Z" fill="#0a684a"/><path d="m17 23 3 3C31 21 36 13 36 4c-3 10-9 16-19 19Z" fill="#278c70"/><circle cx="27" cy="13" r="4" fill="#fff"/><path d="M11 29c-5 0-7 3-7 7 4 0 7-2 7-7Z" fill="#21825c"/></svg>;
+  return <svg width={size} height={size} viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M15 25c-4-2-6-1-9 2l4-10 8-3M15 25c2 4 1 6-2 9l10-4 3-8" fill="#153374"/><path d="M15 25C17 12 25 5 36 4c0 11-7 19-20 22l-1-1Z" fill="#0a2868"/><path d="m17 23 3 3C31 21 36 13 36 4c-3 10-9 16-19 19Z" fill="#224591"/><circle cx="27" cy="13" r="4" fill="#fff"/><path d="M11 29c-5 0-7 3-7 7 4 0 7-2 7-7Z" fill="#1f3f84"/></svg>;
 }
 
 export function Icon({ name, size = 20, style }: { name: string; size?: number; style?: CSSProperties }) {

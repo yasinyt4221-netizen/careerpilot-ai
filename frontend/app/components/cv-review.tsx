@@ -4,6 +4,7 @@ import { Fragment, useState } from "react";
 import type { ReviewItem, ReviewResponse } from "../review-types";
 import { downloadText } from "../application-store";
 import EvidenceSummary from "./evidence-summary";
+import ReviewSummary from "./review-summary";
 
 type Props = {
   text: string;
@@ -17,11 +18,16 @@ type Props = {
   onUpdateCV?: () => void;
 };
 
+// The workspace remounts CVReview after every edit; keep the chosen tab across those remounts.
+const VIEW_KEY = "hireready.review-view";
+
 export default function CVReview({ text, filename, response, updating, onReplace, onUndo, canUndo, onUpdateCV }: Props) {
   const plan = response.review;
   const [selected, setSelected] = useState(plan.changes[0]?.id ?? plan.gaps[0]?.id ?? "");
   const [editing, setEditing] = useState(false);
   const [wording, setWording] = useState("");
+  const [view, setViewState] = useState<"summary" | "details">(() => { try { return window.sessionStorage.getItem(VIEW_KEY) === "details" ? "details" : "summary"; } catch { return "summary"; } });
+  const setView = (next: typeof view) => { try { window.sessionStorage.setItem(VIEW_KEY, next); } catch { /* tab-only */ } setViewState(next); };
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState("");
   const [building, setBuilding] = useState(false);
@@ -79,7 +85,10 @@ export default function CVReview({ text, filename, response, updating, onReplace
     </article>;
   }
 
-  return <section className="cv-review" aria-label="CV review">
+  const tabs = <div className="review-tabs" role="tablist" aria-label="Review view">{([["summary", "Improved CV"], ["details", "Line by line"]] as const).map(([id, label]) => <button key={id} type="button" role="tab" id={`review-tab-${id}`} aria-selected={view === id} aria-controls="review-view" onClick={() => setView(id)}>{label}</button>)}</div>;
+  if (view === "summary") return <section className="cv-review" aria-label="CV review">{tabs}<div id="review-view" role="tabpanel" aria-labelledby="review-tab-summary">{plan.notices.map((notice, index) => <p className="review-notice" key={index}>{notice}</p>)}<ReviewSummary key={text} text={text} response={response}/></div></section>;
+
+  return <section className="cv-review" aria-label="CV review">{tabs}<div id="review-view" role="tabpanel" aria-labelledby="review-tab-details">
     <EvidenceSummary response={response} onUpdateCV={onUpdateCV} onRequirement={id => {
       const requirement = response.matches?.find(match => match.requirement.id === id)?.requirement;
       const item = requirement && (items.find(candidate => candidate.title.toLowerCase().includes(requirement.label.toLowerCase())) ?? items.find(candidate => candidate.job_requirement === requirement.source));
@@ -114,5 +123,5 @@ export default function CVReview({ text, filename, response, updating, onReplace
         <p className="review-footnote">Review every suggestion. Wording checks cover common typos and repeated words, not a complete grammar check.</p>
       </aside>
     </div>
-  </section>;
+  </div></section>;
 }

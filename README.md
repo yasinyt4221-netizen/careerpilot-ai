@@ -44,8 +44,9 @@ labelled fictional roles without replacing saved real jobs.
 - `/connections/`: optional local Gemini key connection and official LinkedIn,
   Indeed and Anglia Ruskin University Handshake sign-in links.
 
-Saved roles use this browser's local storage; there is no account or cross-device
-sync. Drafts and CV text are not persisted by the app. Blocked storage falls
+Saved roles use this browser's local storage. Optionally, create an account at
+`/account/` to save the board on the backend and restore it on another browser
+(see [Accounts](#accounts)). Drafts and CV text are not persisted by the app. Blocked storage falls
 back to tab-only state with an explicit message. No application or email is sent.
 See [showcase notes](docs/showcase.md) for research, behavior and verification.
 
@@ -231,7 +232,7 @@ No identifiable requirements means no score. See
   available; complex layouts may have imperfect reading order.
 - ZIP expansion and text limits protect the local parser. See
   [Milestone 1 notes](docs/milestone-1.md) for the limits and architecture.
-- No document persistence is implemented. Local review sends no CV text to an
+- No CV/document persistence is implemented; accounts store only the application board. Local review sends no CV text to an
   external AI service. Optional Gemini review requires a connected API key and
   explicit document-sharing consent; see [evidence review](docs/evidence-review.md).
   Multipart handling can use temporary files, which are closed after parsing.
@@ -259,6 +260,21 @@ docs/applicant-review.md Highlighted review, practical instructions and text edi
 CODEX_INSTRUCTIONS.md  Original project guidance
 ```
 
-Remaining: expand/evaluate requirement extraction and matching, then add
-authentication, private persistence, retention/deletion controls, and deployment
-hardening before handling real users' CVs.
+## Accounts
+
+Optional email/password accounts (`backend/accounts.py`) save the application
+board (roles, stages, notes, dates) to SQLite at `backend/.data/careerpilot.db`,
+or the path in `CAREERPILOT_DB`. Passwords are salted scrypt hashes; sessions are
+random 30-day tokens stored hashed and sent in the `X-Account-Token` header.
+Sign-in attempts are rate-limited. **Delete account** on `/account/` removes the
+user, sessions and board. Accounts are disabled when `PUBLIC_DEMO_ONLY=true`.
+
+API: `POST /api/account/register|login|logout`, `GET|DELETE /api/account`,
+`GET|PUT /api/account/applications`.
+
+Render's free plan has an ephemeral disk: accounts there are lost on each
+redeploy. Attach a persistent disk and point `CAREERPILOT_DB` at it, or move to
+Postgres (`database/schema.sql`) before relying on hosted accounts.
+
+Remaining: expand/evaluate requirement extraction and matching, email
+verification and password reset, and a privacy notice before real users.
