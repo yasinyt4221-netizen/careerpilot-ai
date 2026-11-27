@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { accountFetch, getAccount, setSyncStatus } from "./account";
 
 export const STAGES = ["Saved", "Applied", "Interview", "Offer", "Closed"] as const;
 export type Stage = typeof STAGES[number];
@@ -53,7 +54,31 @@ function write(jobs: SavedJob[]) {
   try { window.localStorage.setItem(KEY, cachedRaw); temporary = false; }
   catch { temporary = true; }
   window.dispatchEvent(new Event(EVENT));
+  if (getAccount()) schedulePush();
   return !temporary;
+}
+
+// Signed-in boards are mirrored to the backend; the browser copy stays the working copy.
+let pushTimer: ReturnType<typeof setTimeout> | undefined;
+function schedulePush() {
+  setSyncStatus("saving");
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => {
+    accountFetch("/applications", { method: "PUT", body: JSON.stringify({ jobs: cache }) })
+      .then(() => setSyncStatus("saved"), () => setSyncStatus("error"));
+  }, 600);
+}
+export async function syncWithAccount() {
+  setSyncStatus("saving");
+  try {
+    const data = await accountFetch("/applications") as { jobs: unknown };
+    const merged = new Map<string, SavedJob>();
+    for (const job of [...(Array.isArray(data.jobs) ? data.jobs.filter(valid) : []), ...read()]) {
+      const existing = merged.get(job.id);
+      if (!existing || job.updatedAt > existing.updatedAt) merged.set(job.id, job);
+    }
+    write([...merged.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+  } catch (error) { setSyncStatus("error"); throw error; }
 }
 export function useApplications() { return useSyncExternalStore(subscribe, read, () => EMPTY); }
 export function addApplication(job: Pick<SavedJob, "company" | "title" | "url" | "location" | "sponsorship">) {

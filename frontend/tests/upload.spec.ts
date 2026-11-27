@@ -19,8 +19,9 @@ for (const extension of ["pdf", "docx"]) {
     expect(response.status()).toBe(200);
     expect(response.headers()["access-control-allow-origin"]).toBe("http://localhost:3000");
     expect(await response.json()).toMatchObject({ word_count: 11, character_count: 69 });
-    await expect(page.getByTestId("cv-preview")).toHaveText(sample);
     await expect(page.getByRole("region", { name: "CV review", exact: true })).toBeVisible();
+    await page.getByRole("tab", { name: "Line by line" }).click();
+    await expect(page.getByTestId("cv-preview")).toHaveText(sample);
     await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
     expect(errors).toEqual([]);
   });
@@ -49,6 +50,7 @@ for (const [file, message] of [
     await expect(page.getByTestId("cv-preview")).toHaveCount(0);
     await page.getByLabel("Choose a PDF or DOCX CV").setInputFiles(fixture("synthetic.pdf"));
     await page.getByRole("button", { name: "Analyse my CV", exact: true }).click();
+    await page.getByRole("tab", { name: "Line by line" }).click();
     await expect(page.getByTestId("cv-preview")).toHaveText(sample);
   });
 }
@@ -65,6 +67,7 @@ test("useful connection error allows retry without losing inputs", async ({ page
   await expect(page.getByRole("main").getByRole("alert")).toContainText("Cannot reach the review service");
   await page.unroute("**/api/cvs/extract");
   await page.getByRole("button", { name: "Analyse my CV", exact: true }).click();
+  await page.getByRole("tab", { name: "Line by line" }).click();
   await expect(page.getByTestId("cv-preview")).toHaveText(sample);
 });
 

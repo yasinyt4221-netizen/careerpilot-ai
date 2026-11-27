@@ -79,6 +79,7 @@ test("sample review is usable from a direct link and downloads the edited text w
   page.on("request", request => { if (request.method() === "POST" && /\/api\/(cvs|matches)/.test(request.url())) documentRequests.push(request.url()); });
   await page.goto("/workspace/?sample=1");
   await expect(page.getByRole("region", { name: "CV review", exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Line by line" }).click();
   await page.getByRole("button", { name: "Apply change", exact: true }).click();
   await expect(page.getByTestId("cv-preview")).toContainText("Experience in reporting");
   const downloadPromise = page.waitForEvent("download");

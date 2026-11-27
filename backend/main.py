@@ -10,6 +10,7 @@ from typing import Literal
 from review_service import review_documents
 import gemini_review
 import hosted_access
+import accounts
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -51,16 +52,17 @@ class UploadSizeLimit:
         await self.app(scope, replay, send)
 
 
-app = FastAPI(title="CareerPilot AI API", version="0.1.0")
+app = FastAPI(title="HireReady API", version="0.1.0")
 app.add_middleware(UploadSizeLimit)
 app.add_middleware(hosted_access.HostedAccess)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",") if origin.strip()],
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", "Authorization", "X-Account-Token"],
 )
+app.include_router(accounts.router)
 
 
 @app.exception_handler(RequestValidationError)

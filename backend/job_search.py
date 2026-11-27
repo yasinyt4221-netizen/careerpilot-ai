@@ -124,7 +124,7 @@ def rank_jobs(jobs: list[Listing], request: JobSearchRequest, register: dict, st
             continue
         if automatic and request.career_level == 'student' and any(item.priority == 'required' and re.search(r'\b(?:expert knowledge|expert.level|extensive experience|proven track record)\b', item.source, re.I) for item in requirements):
             continue
-        skill_score = round(100 * len(matched) / len(assessment)) if profile and assessment else None  # Legacy API compatibility; not shown as a hiring score.
+        skill_score = round(100 * len(matched) / len(assessment)) if profile and assessment else None  # Shown as "skills match": share of advert skills found in the CV, not a hiring probability.
         fit_label = 'Good evidence' if coverage >= .75 and demonstrated and not hard_checks else 'Some evidence' if found else 'Needs review'
         visa_tier = 2
         visa_label = 'Confirm sponsorship with employer'

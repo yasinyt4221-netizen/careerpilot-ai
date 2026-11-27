@@ -19,6 +19,7 @@ backend/.test-fixtures/
 .local/
 backend/.models/
 backend/.cache/
+backend/.data/
 *.pem
 *.key
 frontend/public/sample-review.json

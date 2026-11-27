@@ -9,6 +9,7 @@ async function analyse(page: Page, file = "review.docx") {
   await page.getByLabel("Job description", { exact: true }).fill(JOB);
   await page.getByRole("button", { name: "Analyse my CV", exact: true }).click();
   await expect(page.getByRole("region", { name: "CV review", exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Line by line" }).click();
 }
 
 test.beforeEach(async ({ page }) => { await page.goto("/workspace/"); });

@@ -25,7 +25,7 @@ export default function Home() {
   const [history, setHistory] = useState<string[]>([]);
   const [reviewVersion, setReviewVersion] = useState(0);
   const [baselineScore, setBaselineScore] = useState<number | null>(null);
-  const [showJobs, setShowJobs] = useState(false);
+  const [showJobs, setShowJobs] = useState(true);
   const [demoHistory, setDemoHistory] = useState<{ text: string; response: ReviewResponse }[]>([]);
   const [sampleMode, setSampleMode] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -179,8 +179,15 @@ export default function Home() {
 
       {busy && <div role="status" className="loading-note"><span className="spinner" aria-hidden="true" />{busy === "updating" ? "Updating your review…" : busy === "reading" ? "Reading your CV…" : "Finding useful changes for this role…"}<button type="button" className="text-button" onClick={cancel}>Cancel</button></div>}
       {error && <div role="alert" className="error-message">{error}</div>}
-      {response && cvText !== null && <><div ref={reviewHeading} tabIndex={-1} className="review-result"><CVReview key={reviewVersion} text={cvText} filename={file?.name ?? (sampleMode ? "Sample CV" : session.filename) ?? "Your CV"} response={response} onUpdateCV={() => { setEditingInputs(true); requestAnimationFrame(() => document.querySelector(".input-summary")?.scrollIntoView({ block: "start" })); }} baselineScore={baselineScore} updating={!!busy} onReplace={replace} onUndo={undoEdit} canUndo={DEMO_MODE || sampleMode ? demoHistory.length > 0 : history.length > 0} /></div><div className="workspace-job-toggle"><div><h2>Find your next opportunity</h2><p>Explore public job boards with your skills and sponsorship needs in mind.</p></div><button className="primary-button" type="button" onClick={() => setShowJobs(value => !value)}>{showJobs ? "Hide jobs" : "Find matching jobs"}</button></div>{showJobs && <JobFinder key={reviewVersion} cvText={DEMO_MODE || sampleMode ? "" : cvText} onSelect={DEMO_MODE || sampleMode ? undefined : selected => { invalidate(); setDescription(selected); setShowJobs(false); if (session.provider === "local") void runReview(undefined, false, selected); }}/>}</>}
+      {response && cvText !== null && <><div ref={reviewHeading} tabIndex={-1} className="review-result"><CVReview key={reviewVersion} text={cvText} filename={file?.name ?? (sampleMode ? "Sample CV" : session.filename) ?? "Your CV"} response={response} onUpdateCV={() => { setEditingInputs(true); requestAnimationFrame(() => document.querySelector(".input-summary")?.scrollIntoView({ block: "start" })); }} baselineScore={baselineScore} updating={!!busy} onReplace={replace} onUndo={undoEdit} canUndo={DEMO_MODE || sampleMode ? demoHistory.length > 0 : history.length > 0} /></div><div className="workspace-job-toggle"><div><h2>Jobs that fit your CV</h2><p>Compare live public listings with the skills in your CV, or search Handshake, LinkedIn, Indeed and UK job boards in one click.</p></div><button className="primary-button" type="button" onClick={() => setShowJobs(value => !value)}>{showJobs ? "Hide jobs" : "Find matching jobs"}</button></div>{showJobs && <JobFinder key={reviewVersion} cvText={DEMO_MODE || sampleMode ? "" : cvText} keywords={searchKeywords(response)} embedded onSelect={DEMO_MODE || sampleMode ? undefined : selected => { invalidate(); setDescription(selected); setShowJobs(false); if (session.provider === "local") void runReview(undefined, false, selected); }}/>}</>}
       <footer className="workspace-footer"><p>Your experience, in your own words. Only add what is true.</p><p>{HOSTED_MODE ? "Private demo" : "Development demo"} · Use synthetic CVs while testing</p></footer>
     </main>
   </div>;
+}
+
+// Broad CV role families are not search terms; map them to the job titles people search for.
+const FAMILY_SEARCH: Record<string, string> = { "Data analysis and reporting": "Data analyst", "Software development": "Software developer", "Design and user research": "UX designer", "Business and finance": "Business analyst", "Customer support and operations": "Customer support", "Marketing": "Marketing assistant" };
+function searchKeywords(response: ReviewResponse) {
+  const family = response.profile?.role_families.find(name => FAMILY_SEARCH[name]);
+  return response.analysis.title?.trim().slice(0, 60) || (family ? FAMILY_SEARCH[family] : "") || response.profile?.skills[0]?.name || "";
 }
