@@ -17,6 +17,9 @@ try {
   await expect(page.getByLabel("Choose a PDF or DOCX CV")).toBeDisabled();
   await page.getByRole("button", { name: "Try the sample CV", exact: true }).click();
   await expect(page.getByRole("region", { name: "CV review", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Analysis", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Your improved CV", exact: true }).locator("textarea").first()).toBeVisible();
+  await page.getByRole("tab", { name: "Line by line", exact: true }).click();
   await page.getByRole("button", { name: "Apply change", exact: true }).click();
   await expect(page.getByTestId("cv-preview")).toContainText("Experience in reporting");
   await page.getByRole("button", { name: "Undo last edit", exact: true }).click();
@@ -45,7 +48,7 @@ try {
   await page.getByRole("tab", { name: "Cover letter", exact: true }).click();
   await expect(page.locator(".draft-text")).toContainText("Dear hiring team at Northstar Labs");
   await page.getByRole("tab", { name: "Follow-up email", exact: true }).click();
-  await expect(page.locator(".draft-text")).toContainText("Following up");
+  await expect(page.locator(".draft-text")).toContainText("Subject:");
   await page.setViewportSize({ width: 390, height: 844 });
   for (const route of ["/", "/workspace/", "/jobs/", "/dashboard/", "/applications/", "/prepare/", "/help/"]) {
     await page.goto(base + route);
@@ -53,7 +56,7 @@ try {
   }
   expect(errors, "Browser errors").toEqual([]);
   expect(documentPosts, "Public preview must not submit personal documents").toEqual([]);
-  console.log("Public showcase verified: home, CV edits, job feed, save job, persistent application stages, tour, preparation drafts and mobile.");
+  console.log("Public showcase verified: home, improved CV, CV edits, job feed, save job, persistent application stages, tour, preparation drafts and mobile.");
 } finally {
   await browser.close();
 }
